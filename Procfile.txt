@@ -1,1 +1,2 @@
+web: gunicorn trading_bot:app_webhook --bind 0.0.0.0:$PORT
 worker: python trading_bot.py
