@@ -30,7 +30,6 @@ if not MP_ACCESS_TOKEN:
 
 MP_WEBHOOK_URL = os.getenv("MP_WEBHOOK_URL")
 
-# Binance referral link (set in .env)
 BINANCE_REFERRAL_LINK = os.getenv("BINANCE_REFERRAL_LINK", "https://www.binance.com/en/register?ref=YOUR_CODE")
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -85,8 +84,6 @@ def calculate_plan_end(plan: str, start_date: datetime) -> datetime:
         return start_date + timedelta(days=90)
     elif plan == "yearly":
         return start_date + timedelta(days=365)
-    elif plan == "lifetime":
-        return datetime(2099, 12, 31, 23, 59, 59)
     else:
         return start_date
 
@@ -111,7 +108,7 @@ def activate_premium(chat_id, plan):
     subscribers[str(chat_id)] = {
         "plan": plan,
         "start": start.isoformat(),
-        "end": end.isoformat() if plan != "lifetime" else None,
+        "end": end.isoformat(),
         "active": True
     }
     save_subscribers(subscribers)
@@ -162,7 +159,7 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "You can now use the bot. Here are some suggestions:\n"
         "• Use /start to see the main menu.\n"
         "• Use /plans to view subscription plans.\n"
-        "• Use /pay monthly (or quarterly, yearly, lifetime) to activate Premium.\n"
+        "• Use /pay monthly (or quarterly, yearly) to activate Premium.\n"
         "• Use /whale to see whale movements (free).\n"
         "• Use /info BTC for detailed coin data.\n"
         "• Use /news for latest crypto news.\n"
@@ -575,7 +572,7 @@ async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         end = data.get("end")
         if end:
             end_date = datetime.fromisoformat(end).strftime("%d/%m/%Y")
-            message = f"✨ *You are PREMIUM* ✨\n\n📅 Plan: *{plan.capitalize()}*\n⏰ Valid until: {end_date}\n\n✅ Real trading access (coming soon)\n✅ Reduced fee 0.1%\n✅ Whale alerts"
+            message = f"✨ *You are PREMIUM* ✨\n\n📅 Plan: *{plan.capitalize()}*\n⏰ Valid until: {end_date}\n\n✅ Real trading access\n✅ Reduced fee 0.2%\n✅ Whale alerts"
         else:
             message = "✨ *You are PREMIUM* ✨\n\nPlan: *Lifetime*\n✅ Lifetime access\n✅ Whale alerts"
     else:
@@ -589,13 +586,11 @@ async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • *Monthly*: $190 / month
 • *Quarterly*: $540 / quarter (save $30)
 • *Yearly*: $1900 / year (save $380)
-• *Lifetime*: $5000 (one-time payment)
 
 To activate, type:
 /pay monthly
 /pay quarterly
 /pay yearly
-/pay lifetime
 
 *Includes whale alerts, AI analysis and more.*
 """
@@ -667,79 +662,81 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
     await update.message.reply_text("No news found at the moment. Try again later.")
 
-# ==================== PAYMENT COMMAND ====================
+# ==================== PAYMENT COMMAND (RECURRING SUBSCRIPTIONS) ====================
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    if is_premium(chat_id):
-        await update.message.reply_text("✨ You are already Premium. Thank you!")
-        return
     args = context.args
-    if not args:
-        plans_text = (
-            "📅 *Subscription plans*\n\n"
-            "• *Monthly*: $190 MXN\n"
-            "• *Quarterly*: $540 MXN (save $30)\n"
-            "• *Yearly*: $1900 MXN (save $380)\n"
-            "• *Lifetime*: $5000 MXN (one-time)\n\n"
-            "To activate, type:\n"
-            "`/pay monthly`\n"
-            "`/pay quarterly`\n"
-            "`/pay yearly`\n"
-            "`/pay lifetime`\n\n"
-            "Example: `/pay monthly`\n\n"
-            "For more info, use /plans."
-        )
-        await update.message.reply_text(plans_text, parse_mode="Markdown")
-        return
-    plan = args[0].lower()
-    prices = {"monthly": 190, "quarterly": 540, "yearly": 1900, "lifetime": 5000}
-    if plan not in prices:
-        await update.message.reply_text("❌ Invalid plan. Options: monthly, quarterly, yearly, lifetime\nExample: `/pay monthly`", parse_mode="Markdown")
-        return
-    price = prices[plan]
-    payment_url = await generate_payment_link(chat_id, plan, price)
-    if not payment_url:
-        await update.message.reply_text("❌ Failed to generate payment link. Try again later.")
-        return
-    message = (
-        f"💳 *Activate Premium - {plan.capitalize()} Plan*\n\n"
-        f"1️⃣ Click to pay ${price} MXN:\n{payment_url}\n\n"
-        f"2️⃣ After payment, your subscription will activate automatically.\n"
-        f"🔁 Auto-renewal (except lifetime).\n\n"
-        f"📌 *Extra:* Whale alerts, AI analysis, enhanced reports.\n\n"
-        f"Use /premium to check your status."
-    )
-    await update.message.reply_text(message, parse_mode=None, disable_web_page_preview=True)
 
-async def generate_payment_link(chat_id: int, plan: str, price: int) -> str | None:
+    if not args:
+        await update.message.reply_text(
+            "ℹ️ *Subscription plans*\n\n"
+            "Use: `/pay monthly` (MXN 190/mes)\n"
+            "Use: `/pay quarterly` (MXN 540/trimestre)\n"
+            "Use: `/pay yearly` (MXN 1900/año)\n\n"
+            "You will receive a payment link. After the first payment, the subscription will renew automatically.",
+            parse_mode="Markdown"
+        )
+        return
+
+    plan_key = args[0].lower()
+    plan_id = None
+    plan_name = None
+
+    if plan_key == "monthly":
+        plan_id = os.getenv("MP_PLAN_MONTHLY_ID")
+        plan_name = "Monthly"
+    elif plan_key == "quarterly":
+        plan_id = os.getenv("MP_PLAN_QUARTERLY_ID")
+        plan_name = "Quarterly"
+    elif plan_key == "yearly":
+        plan_id = os.getenv("MP_PLAN_YEARLY_ID")
+        plan_name = "Yearly"
+    else:
+        await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly")
+        return
+
+    if not plan_id:
+        await update.message.reply_text("❌ Plan not configured. Contact support.")
+        return
+
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-    preference_data = {
-        "items": [{
-            "title": f"CryptoArch Agent - {plan.capitalize()} Plan",
-            "quantity": 1,
+    subscription_data = {
+        "preapproval_plan_id": plan_id,
+        "reason": f"CryptoArch Agent - {plan_name} Plan",
+        "external_reference": str(chat_id),
+        "payer_email": update.effective_user.email,
+        "back_url": "https://t.me/CryptoArchTrading_bot",
+        "auto_recurring": {
             "currency_id": "MXN",
-            "unit_price": price
-        }],
-        "external_reference": f"{chat_id}:{plan}",
-        "back_urls": {
-            "success": "https://t.me/TU_BOT",
-            "failure": "https://t.me/TU_BOT"
-        },
-        "auto_return": "approved",
+            "transaction_amount": None  # taken from the plan
+        }
     }
-    if MP_WEBHOOK_URL:
-        preference_data["notification_url"] = MP_WEBHOOK_URL
+
     try:
-        response = sdk.preference().create(preference_data)
-        print("MP response:", response)
-        if response.get("status") == 201:
-            return response["response"]["init_point"]
-        else:
-            print("Error response:", response)
-            return None
+        subscription_response = sdk.preapproval().create(subscription_data)
+        subscription = subscription_response["response"]
+        payment_link = subscription.get("init_point")
+        subscription_id = subscription.get("id")
+
+        # Save subscription ID in subscribers.json
+        subscribers = load_subscribers()
+        if str(chat_id) not in subscribers:
+            subscribers[str(chat_id)] = {}
+        subscribers[str(chat_id)]["subscription_id"] = subscription_id
+        subscribers[str(chat_id)]["status"] = "pending"
+        save_subscribers(subscribers)
+
+        await update.message.reply_text(
+            f"✅ *Subscription created successfully!*\n\n"
+            f"🔗 [Click here to pay and activate]({payment_link})\n\n"
+            f"After payment, your Premium will be activated automatically.\n"
+            f"Future renewals will be automatic.",
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
     except Exception as e:
-        print(f"Exception: {e}")
-        return None
+        logger.error(f"Error creating subscription: {e}")
+        await update.message.reply_text(f"❌ Error: {str(e)}")
 
 # ==================== WHALE ALERTS (AI) ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -876,7 +873,7 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Sell failed.")
     context.user_data.pop("pending_order", None)
 
-# ==================== PLAN ACTIVATION ====================
+# ==================== PLAN ACTIVATION (BASED ON REAL BALANCE) ====================
 async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text(
@@ -952,7 +949,7 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += "5. Run /activate again.\n"
     await update.message.reply_text(message, parse_mode="Markdown")
 
-# ==================== WEBHOOK ====================
+# ==================== WEBHOOK (for Mercado Pago notifications) ====================
 if MP_WEBHOOK_URL:
     webhook_app = Flask(__name__)
 
@@ -961,6 +958,7 @@ if MP_WEBHOOK_URL:
         data = request.json
         logger.info(f"📩 Webhook notification: {data}")
         try:
+            # Payment notification (one-time payment)
             if data.get("type") == "payment":
                 payment_id = data["data"]["id"]
                 sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
@@ -973,6 +971,21 @@ if MP_WEBHOOK_URL:
                     if len(parts) == 2:
                         chat_id, plan = parts
                         activate_premium(chat_id, plan)
+            # Subscription preapproval notification
+            elif data.get("type") == "subscription_preapproval":
+                subscription_id = data["data"]["id"]
+                sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
+                subscription_response = sdk.preapproval().get(subscription_id)
+                subscription_data = subscription_response["response"]
+                subscription_status = subscription_data.get("status")
+                external_ref = subscription_data.get("external_reference")
+                if subscription_status == "authorized" and external_ref:
+                    # external_reference is the chat_id
+                    chat_id = external_ref
+                    # Determine plan from plan_id if needed
+                    # For now, set a default plan
+                    plan = "premium"
+                    activate_premium(chat_id, plan)
             return "OK", 200
         except Exception as e:
             logger.error(f"Webhook error: {e}")
