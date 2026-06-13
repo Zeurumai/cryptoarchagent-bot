@@ -704,7 +704,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "preapproval_plan_id": plan_id,
         "reason": f"CryptoArch Agent - {plan_name} Plan",
         "external_reference": str(chat_id),
-        "payer_email": update.effective_user.email,
+        "payer_email": f"user_{chat_id}@telegram.user",
         "back_url": "https://t.me/CryptoArchTrading_bot",
         "auto_recurring": {
             "currency_id": "MXN",
