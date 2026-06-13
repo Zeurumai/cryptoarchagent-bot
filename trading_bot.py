@@ -714,8 +714,12 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         subscription_response = sdk.preapproval().create(subscription_data)
+        # ========== LOGS PARA DEPURACIÓN ==========
+        print("🔍 Respuesta completa de Mercado Pago:", subscription_response)
         subscription = subscription_response["response"]
         payment_link = subscription.get("init_point")
+        print("🔗 Payment link obtenido:", payment_link)
+        # ========================================
         subscription_id = subscription.get("id")
 
         # Save subscription ID in subscribers.json
@@ -726,14 +730,22 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         subscribers[str(chat_id)]["status"] = "pending"
         save_subscribers(subscribers)
 
-        await update.message.reply_text(
-            f"✅ *Subscription created successfully!*\n\n"
-            f"🔗 [Click here to pay and activate]({payment_link})\n\n"
-            f"After payment, your Premium will be activated automatically.\n"
-            f"Future renewals will be automatic.",
-            parse_mode="Markdown",
-            disable_web_page_preview=True
-        )
+        if payment_link:
+            await update.message.reply_text(
+                f"✅ *Subscription created successfully!*\n\n"
+                f"🔗 [Click here to pay and activate]({payment_link})\n\n"
+                f"After payment, your Premium will be activated automatically.\n"
+                f"Future renewals will be automatic.",
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+        else:
+            # Si no hay link, mostramos un mensaje de error con la respuesta
+            await update.message.reply_text(
+                f"❌ Error: Mercado Pago no devolvió un enlace de pago.\n"
+                f"Respuesta: {subscription_response}\n"
+                f"Revisa los logs para más detalles."
+            )
     except Exception as e:
         logger.error(f"Error creating subscription: {e}")
         await update.message.reply_text(f"❌ Error: {str(e)}")
