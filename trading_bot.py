@@ -678,7 +678,7 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
-# ==================== PAYMENT COMMAND (WITH YOUR EMAIL) ====================
+# ==================== PAYMENT COMMAND (CORRECTED - USES PLAN IDs) ====================
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
@@ -686,48 +686,51 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not args:
         await update.message.reply_text(
             "ℹ️ *Subscription plans*\n\n"
-            "Use: `/pay monthly` (MXN 190/mes)\n"
-            "Use: `/pay quarterly` (MXN 540/trimestre)\n"
-            "Use: `/pay yearly` (MXN 1900/año)\n\n"
+            "Use: `/pay monthly`\n"
+            "Use: `/pay quarterly`\n"
+            "Use: `/pay yearly`\n\n"
             "You will receive a payment link. After the first payment, the subscription will renew automatically.",
             parse_mode="Markdown"
         )
         return
 
     plan_key = args[0].lower()
-    plan_id_raw = None
+    plan_id = None
     plan_name = None
 
     if plan_key == "monthly":
-        plan_id_raw = os.getenv("MP_PLAN_MONTHLY_ID")
+        plan_id = os.getenv("MP_PLAN_MONTHLY_ID")
         plan_name = "Monthly"
     elif plan_key == "quarterly":
-        plan_id_raw = os.getenv("MP_PLAN_QUARTERLY_ID")
+        plan_id = os.getenv("MP_PLAN_QUARTERLY_ID")
         plan_name = "Quarterly"
     elif plan_key == "yearly":
-        plan_id_raw = os.getenv("MP_PLAN_YEARLY_ID")
+        plan_id = os.getenv("MP_PLAN_YEARLY_ID")
         plan_name = "Yearly"
     else:
         await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly")
         return
 
-    if not plan_id_raw:
+    if not plan_id:
         await update.message.reply_text("❌ Plan not configured. Contact support.")
         return
 
-    # Limpiar el ID (por si hay espacios o saltos de línea)
-    plan_id = plan_id_raw.strip()
+    # Limpiar el ID (por si tiene espacios o saltos)
+    plan_id = plan_id.strip()
+
+    # Email dinámico para evitar conflicto "payer and collector cannot be the same user"
+    payer_email = f"user_{chat_id}@telegram.user"
 
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
     subscription_data = {
         "preapproval_plan_id": plan_id,
         "reason": f"CryptoArch Agent - {plan_name} Plan",
         "external_reference": str(chat_id),
-        "payer_email": f"user_{chat_id}@telegram.user",
+        "payer_email": payer_email,
         "back_url": "https://t.me/CryptoArchTrading_bot",
         "auto_recurring": {
             "currency_id": "MXN"
-            # NO incluyas "transaction_amount" aquí, se toma del plan
+            # NO incluir "transaction_amount" para que tome el precio del plan
         }
     }
 
@@ -738,7 +741,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subscription = subscription_response["response"]
             payment_link = subscription.get("init_point")
             subscription_id = subscription.get("id")
-            # Guardar subscription_id
+            # Save subscription ID
             subscribers = load_subscribers()
             if str(chat_id) not in subscribers:
                 subscribers[str(chat_id)] = {}
@@ -759,6 +762,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error creating subscription: {e}")
         await update.message.reply_text(f"❌ Error: {str(e)}")
+
 # ==================== WHALE ALERTS (AI) ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
