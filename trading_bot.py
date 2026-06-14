@@ -8,6 +8,7 @@ import schedule
 import threading
 import asyncio
 import feedparser
+import re
 from datetime import datetime, timedelta
 from flask import Flask, request
 from dotenv import load_dotenv
@@ -222,7 +223,7 @@ def check_alerts():
                 alert["active"] = False
     save_user_data()
 
-# ==================== REPORTS (IMPROVED) ====================
+# ==================== REPORTS ====================
 def send_report(chat_id, report_type):
     prices = get_all_prices()
     if not prices:
@@ -662,7 +663,22 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
     await update.message.reply_text("No news found at the moment. Try again later.")
 
-# ==================== PAYMENT COMMAND (CORRECTED FOR SUBSCRIPTIONS) ====================
+# ==================== TEST COMMAND ====================
+async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    monthly = os.getenv("MP_PLAN_MONTHLY_ID")
+    quarterly = os.getenv("MP_PLAN_QUARTERLY_ID")
+    yearly = os.getenv("MP_PLAN_YEARLY_ID")
+    token = os.getenv("MP_ACCESS_TOKEN")[:20] if os.getenv("MP_ACCESS_TOKEN") else "None"
+    msg = (
+        f"🔍 *Variables de entorno*\n\n"
+        f"Monthly ID: `{monthly}`\n"
+        f"Quarterly ID: `{quarterly}`\n"
+        f"Yearly ID: `{yearly}`\n"
+        f"Token (primeros 20): `{token}...`"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+# ==================== PAYMENT COMMAND (CORREGIDO) ====================
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
@@ -679,37 +695,37 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     plan_key = args[0].lower()
-    plan_id = None
+    plan_id_raw = None
     plan_name = None
 
     if plan_key == "monthly":
-        plan_id = os.getenv("MP_PLAN_MONTHLY_ID")
+        plan_id_raw = os.getenv("MP_PLAN_MONTHLY_ID")
         plan_name = "Monthly"
     elif plan_key == "quarterly":
-        plan_id = os.getenv("MP_PLAN_QUARTERLY_ID")
+        plan_id_raw = os.getenv("MP_PLAN_QUARTERLY_ID")
         plan_name = "Quarterly"
     elif plan_key == "yearly":
-        plan_id = os.getenv("MP_PLAN_YEARLY_ID")
+        plan_id_raw = os.getenv("MP_PLAN_YEARLY_ID")
         plan_name = "Yearly"
     else:
         await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly")
         return
 
-    if not plan_id:
+    if not plan_id_raw:
         await update.message.reply_text("❌ Plan not configured. Contact support.")
         return
 
-    # Ensure that the plan_id is just the alphanumeric string, not a full URL
-    # Clean up if it contains a URL (just in case)
+    # Limpiar y extraer ID (por si hay espacios o URL)
+    plan_id = plan_id_raw.strip()
     if "preapproval_plan_id=" in plan_id:
-        # Extract the ID from the URL
-        import re
         match = re.search(r'preapproval_plan_id=([a-f0-9]+)', plan_id)
         if match:
             plan_id = match.group(1)
         else:
             await update.message.reply_text("❌ Invalid plan ID format. Contact support.")
             return
+
+    print(f"🔍 Cleaned plan ID for {plan_key}: '{plan_id}' (len={len(plan_id)})")
 
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
     subscription_data = {
@@ -720,27 +736,26 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "back_url": "https://t.me/CryptoArchTrading_bot",
         "auto_recurring": {
             "currency_id": "MXN",
-            "transaction_amount": None  # taken from the plan
+            "transaction_amount": None
         }
     }
 
     try:
         subscription_response = sdk.preapproval().create(subscription_data)
-        print("🔍 Respuesta completa de Mercado Pago:", subscription_response)
-        subscription = subscription_response["response"]
+        print("🔍 Mercado Pago response:", subscription_response)
+        subscription = subscription_response.get("response", {})
         payment_link = subscription.get("init_point")
-        print("🔗 Payment link obtenido:", payment_link)
         subscription_id = subscription.get("id")
 
-        # Save subscription ID in subscribers.json
-        subscribers = load_subscribers()
-        if str(chat_id) not in subscribers:
-            subscribers[str(chat_id)] = {}
-        subscribers[str(chat_id)]["subscription_id"] = subscription_id
-        subscribers[str(chat_id)]["status"] = "pending"
-        save_subscribers(subscribers)
-
         if payment_link:
+            # Guardar subscription_id
+            subscribers = load_subscribers()
+            if str(chat_id) not in subscribers:
+                subscribers[str(chat_id)] = {}
+            subscribers[str(chat_id)]["subscription_id"] = subscription_id
+            subscribers[str(chat_id)]["status"] = "pending"
+            save_subscribers(subscribers)
+
             await update.message.reply_text(
                 f"✅ *Subscription created successfully!*\n\n"
                 f"🔗 [Click here to pay and activate]({payment_link})\n\n"
@@ -750,11 +765,8 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 disable_web_page_preview=True
             )
         else:
-            await update.message.reply_text(
-                f"❌ Error: Mercado Pago did not return a payment link.\n"
-                f"Response: {subscription_response}\n"
-                f"Check logs for details."
-            )
+            error_msg = subscription_response.get("message", "Unknown error")
+            await update.message.reply_text(f"❌ Error: Mercado Pago did not return a payment link.\nResponse: {error_msg}")
     except Exception as e:
         logger.error(f"Error creating subscription: {e}")
         await update.message.reply_text(f"❌ Error: {str(e)}")
@@ -970,7 +982,7 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += "5. Run /activate again.\n"
     await update.message.reply_text(message, parse_mode="Markdown")
 
-# ==================== WEBHOOK (for Mercado Pago notifications) ====================
+# ==================== WEBHOOK ====================
 if MP_WEBHOOK_URL:
     webhook_app = Flask(__name__)
 
@@ -979,7 +991,6 @@ if MP_WEBHOOK_URL:
         data = request.json
         logger.info(f"📩 Webhook notification: {data}")
         try:
-            # Payment notification (one-time payment)
             if data.get("type") == "payment":
                 payment_id = data["data"]["id"]
                 sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
@@ -992,7 +1003,6 @@ if MP_WEBHOOK_URL:
                     if len(parts) == 2:
                         chat_id, plan = parts
                         activate_premium(chat_id, plan)
-            # Subscription preapproval notification
             elif data.get("type") == "subscription_preapproval":
                 subscription_id = data["data"]["id"]
                 sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
@@ -1001,11 +1011,8 @@ if MP_WEBHOOK_URL:
                 subscription_status = subscription_data.get("status")
                 external_ref = subscription_data.get("external_reference")
                 if subscription_status == "authorized" and external_ref:
-                    # external_reference is the chat_id
                     chat_id = external_ref
-                    # Determine plan from plan_id if needed
-                    # For now, set a default plan
-                    plan = "premium"
+                    plan = "premium"  # o extraer del plan_id
                     activate_premium(chat_id, plan)
             return "OK", 200
         except Exception as e:
@@ -1042,6 +1049,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("sell", sell))
     app.add_handler(CommandHandler("activate", activate))
     app.add_handler(CommandHandler("plan", plan))
+    app.add_handler(CommandHandler("test", test_command))   # <-- comando de prueba
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 
