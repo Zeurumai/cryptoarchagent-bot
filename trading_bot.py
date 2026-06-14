@@ -666,22 +666,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
     await update.message.reply_text("No news found at the moment. Try again later.")
 
-# ==================== TEST COMMAND ====================
-async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    monthly = os.getenv("MP_PLAN_MONTHLY_ID")  # opcional, solo para info
-    quarterly = os.getenv("MP_PLAN_QUARTERLY_ID")
-    yearly = os.getenv("MP_PLAN_YEARLY_ID")
-    token = os.getenv("MP_ACCESS_TOKEN")[:20] if os.getenv("MP_ACCESS_TOKEN") else "None"
-    msg = (
-        f"🔍 *Variables de entorno*\n\n"
-        f"Monthly ID: `{monthly}`\n"
-        f"Quarterly ID: `{quarterly}`\n"
-        f"Yearly ID: `{yearly}`\n"
-        f"Token (primeros 20): `{token}...`"
-    )
-    await update.message.reply_text(msg, parse_mode="Markdown")
-
-# ==================== PAYMENT COMMAND (WORKING VERSION - FIXED PRICES, DYNAMIC EMAIL) ====================
+# ==================== PAYMENT COMMAND (WITH WEBHOOK SUPPORT) ====================
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
@@ -743,7 +728,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subscription = subscription_response["response"]
             payment_link = subscription.get("init_point")
             subscription_id = subscription.get("id")
-            # Save subscription ID
+            # Guardar subscription_id
             subscribers = load_subscribers()
             if str(chat_id) not in subscribers:
                 subscribers[str(chat_id)] = {}
@@ -985,6 +970,7 @@ if MP_WEBHOOK_URL:
         data = request.json
         logger.info(f"📩 Webhook notification: {data}")
         try:
+            # Payment notification (one-time payment)
             if data.get("type") == "payment":
                 payment_id = data["data"]["id"]
                 sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
@@ -993,10 +979,13 @@ if MP_WEBHOOK_URL:
                 external_ref = payment_data.get("external_reference")
                 status = payment_data.get("status")
                 if status == "approved" and external_ref:
-                    parts = external_ref.split(":")
-                    if len(parts) == 2:
-                        chat_id, plan = parts
-                        activate_premium(chat_id, plan)
+                    # external_reference is the chat_id (when using /pay command)
+                    chat_id = external_ref
+                    # Determine plan from subscription? For simplicity, activate with a default plan
+                    # You could also store the plan when creating the subscription
+                    plan = "premium"
+                    activate_premium(chat_id, plan)
+            # Subscription preapproval notification
             elif data.get("type") == "subscription_preapproval":
                 subscription_id = data["data"]["id"]
                 sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
@@ -1006,7 +995,7 @@ if MP_WEBHOOK_URL:
                 external_ref = subscription_data.get("external_reference")
                 if subscription_status == "authorized" and external_ref:
                     chat_id = external_ref
-                    plan = "premium"
+                    plan = "premium"  # or extract from subscription_data
                     activate_premium(chat_id, plan)
             return "OK", 200
         except Exception as e:
@@ -1043,7 +1032,6 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("sell", sell))
     app.add_handler(CommandHandler("activate", activate))
     app.add_handler(CommandHandler("plan", plan))
-    app.add_handler(CommandHandler("test", test_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 
