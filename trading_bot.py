@@ -695,36 +695,39 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     plan_key = args[0].lower()
+    plan_id_raw = None
+    plan_name = None
+
     if plan_key == "monthly":
-        amount = 190.00
-        frequency = 1
+        plan_id_raw = os.getenv("MP_PLAN_MONTHLY_ID")
         plan_name = "Monthly"
     elif plan_key == "quarterly":
-        amount = 540.00
-        frequency = 3
+        plan_id_raw = os.getenv("MP_PLAN_QUARTERLY_ID")
         plan_name = "Quarterly"
     elif plan_key == "yearly":
-        amount = 1900.00
-        frequency = 12
+        plan_id_raw = os.getenv("MP_PLAN_YEARLY_ID")
         plan_name = "Yearly"
     else:
         await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly")
         return
 
-    # Email dinámico basado en el chat_id (no puede ser el mismo que el collector)
-    payer_email = f"user_{chat_id}@telegram.user"
+    if not plan_id_raw:
+        await update.message.reply_text("❌ Plan not configured. Contact support.")
+        return
+
+    # Limpiar el ID (por si hay espacios o saltos de línea)
+    plan_id = plan_id_raw.strip()
 
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
     subscription_data = {
+        "preapproval_plan_id": plan_id,
         "reason": f"CryptoArch Agent - {plan_name} Plan",
         "external_reference": str(chat_id),
-        "payer_email": payer_email,
+        "payer_email": f"user_{chat_id}@telegram.user",
         "back_url": "https://t.me/CryptoArchTrading_bot",
         "auto_recurring": {
-            "frequency": frequency,
-            "frequency_type": "months",
-            "transaction_amount": amount,
             "currency_id": "MXN"
+            # NO incluyas "transaction_amount" aquí, se toma del plan
         }
     }
 
@@ -756,7 +759,6 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error creating subscription: {e}")
         await update.message.reply_text(f"❌ Error: {str(e)}")
-
 # ==================== WHALE ALERTS (AI) ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
