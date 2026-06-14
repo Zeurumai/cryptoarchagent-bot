@@ -711,8 +711,8 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly")
         return
 
-    # Email real del usuario (ya puesto)
-    payer_email = "zeurumai@gmail.com"
+    # Email dinámico basado en el chat_id (no puede ser el mismo que el collector)
+    payer_email = f"user_{chat_id}@telegram.user"
 
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
     subscription_data = {
@@ -735,7 +735,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subscription = subscription_response["response"]
             payment_link = subscription.get("init_point")
             subscription_id = subscription.get("id")
-            # Save subscription ID
+            # Guardar subscription_id
             subscribers = load_subscribers()
             if str(chat_id) not in subscribers:
                 subscribers[str(chat_id)] = {}
