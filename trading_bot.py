@@ -8,7 +8,7 @@ import schedule
 import threading
 import asyncio
 import feedparser
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta 
 from flask import Flask, request
 from dotenv import load_dotenv
 import mercadopago
