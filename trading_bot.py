@@ -662,7 +662,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
     await update.message.reply_text("No news found at the moment. Try again later.")
 
-# ==================== PAYMENT COMMAND (RECURRING SUBSCRIPTIONS) ====================
+# ==================== PAYMENT COMMAND (CORRECTED FOR SUBSCRIPTIONS) ====================
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
@@ -699,6 +699,18 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Plan not configured. Contact support.")
         return
 
+    # Ensure that the plan_id is just the alphanumeric string, not a full URL
+    # Clean up if it contains a URL (just in case)
+    if "preapproval_plan_id=" in plan_id:
+        # Extract the ID from the URL
+        import re
+        match = re.search(r'preapproval_plan_id=([a-f0-9]+)', plan_id)
+        if match:
+            plan_id = match.group(1)
+        else:
+            await update.message.reply_text("❌ Invalid plan ID format. Contact support.")
+            return
+
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
     subscription_data = {
         "preapproval_plan_id": plan_id,
@@ -714,12 +726,10 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         subscription_response = sdk.preapproval().create(subscription_data)
-        # ========== LOGS PARA DEPURACIÓN ==========
         print("🔍 Respuesta completa de Mercado Pago:", subscription_response)
         subscription = subscription_response["response"]
         payment_link = subscription.get("init_point")
         print("🔗 Payment link obtenido:", payment_link)
-        # ========================================
         subscription_id = subscription.get("id")
 
         # Save subscription ID in subscribers.json
@@ -740,11 +750,10 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 disable_web_page_preview=True
             )
         else:
-            # Si no hay link, mostramos un mensaje de error con la respuesta
             await update.message.reply_text(
-                f"❌ Error: Mercado Pago no devolvió un enlace de pago.\n"
-                f"Respuesta: {subscription_response}\n"
-                f"Revisa los logs para más detalles."
+                f"❌ Error: Mercado Pago did not return a payment link.\n"
+                f"Response: {subscription_response}\n"
+                f"Check logs for details."
             )
     except Exception as e:
         logger.error(f"Error creating subscription: {e}")
