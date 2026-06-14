@@ -8,7 +8,6 @@ import schedule
 import threading
 import asyncio
 import feedparser
-import re
 from datetime import datetime, timedelta
 from flask import Flask, request
 from dotenv import load_dotenv
@@ -86,7 +85,7 @@ def calculate_plan_end(plan: str, start_date: datetime) -> datetime:
     elif plan == "yearly":
         return start_date + timedelta(days=365)
     elif plan == "test":
-        return start_date + timedelta(days=30)  # prueba, un mes
+        return start_date + timedelta(days=30)
     else:
         return start_date
 
@@ -669,22 +668,20 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== TEST COMMAND ====================
 async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    monthly = os.getenv("MP_PLAN_MONTHLY_ID")
+    monthly = os.getenv("MP_PLAN_MONTHLY_ID")  # opcional, solo para info
     quarterly = os.getenv("MP_PLAN_QUARTERLY_ID")
     yearly = os.getenv("MP_PLAN_YEARLY_ID")
-    test_plan = os.getenv("MP_PLAN_TEST_ID")
     token = os.getenv("MP_ACCESS_TOKEN")[:20] if os.getenv("MP_ACCESS_TOKEN") else "None"
     msg = (
         f"🔍 *Variables de entorno*\n\n"
         f"Monthly ID: `{monthly}`\n"
         f"Quarterly ID: `{quarterly}`\n"
         f"Yearly ID: `{yearly}`\n"
-        f"Test ID: `{test_plan}`\n"
         f"Token (primeros 20): `{token}...`"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
-# ==================== PAYMENT COMMAND (CORRECTED - USES PLAN IDs, INCLUDES TEST PLAN) ====================
+# ==================== PAYMENT COMMAND (WORKING VERSION - FIXED PRICES, DYNAMIC EMAIL) ====================
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
@@ -692,55 +689,50 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not args:
         await update.message.reply_text(
             "ℹ️ *Subscription plans*\n\n"
-            "Use: `/pay monthly`\n"
-            "Use: `/pay quarterly`\n"
-            "Use: `/pay yearly`\n"
-            "Use: `/pay test` (for testing, $10 MXN)\n\n"
+            "Use: `/pay monthly` (MXN 190/mes)\n"
+            "Use: `/pay quarterly` (MXN 540/trimestre)\n"
+            "Use: `/pay yearly` (MXN 1900/año)\n"
+            "Use: `/pay test` (MXN 10/mes for testing)\n\n"
             "You will receive a payment link. After the first payment, the subscription will renew automatically.",
             parse_mode="Markdown"
         )
         return
 
     plan_key = args[0].lower()
-    plan_id = None
-    plan_name = None
-
     if plan_key == "monthly":
-        plan_id = os.getenv("MP_PLAN_MONTHLY_ID")
+        amount = 190.00
+        frequency = 1
         plan_name = "Monthly"
     elif plan_key == "quarterly":
-        plan_id = os.getenv("MP_PLAN_QUARTERLY_ID")
+        amount = 540.00
+        frequency = 3
         plan_name = "Quarterly"
     elif plan_key == "yearly":
-        plan_id = os.getenv("MP_PLAN_YEARLY_ID")
+        amount = 1900.00
+        frequency = 12
         plan_name = "Yearly"
     elif plan_key == "test":
-        plan_id = os.getenv("MP_PLAN_TEST_ID")
+        amount = 10.00
+        frequency = 1
         plan_name = "Test"
     else:
         await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly, test")
         return
-
-    if not plan_id:
-        await update.message.reply_text("❌ Plan not configured. Contact support.")
-        return
-
-    # Limpiar el ID (por si tiene espacios o saltos)
-    plan_id = plan_id.strip()
 
     # Email dinámico para evitar conflicto "payer and collector cannot be the same user"
     payer_email = f"user_{chat_id}@telegram.user"
 
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
     subscription_data = {
-        "preapproval_plan_id": plan_id,
         "reason": f"CryptoArch Agent - {plan_name} Plan",
         "external_reference": str(chat_id),
         "payer_email": payer_email,
         "back_url": "https://t.me/CryptoArchTrading_bot",
         "auto_recurring": {
+            "frequency": frequency,
+            "frequency_type": "months",
+            "transaction_amount": amount,
             "currency_id": "MXN"
-            # NO incluir "transaction_amount" para que tome el precio del plan
         }
     }
 
