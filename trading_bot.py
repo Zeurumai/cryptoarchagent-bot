@@ -116,6 +116,18 @@ def activate_premium(chat_id, plan):
     save_subscribers(subscribers)
     logger.info(f"✅ Premium activated for {chat_id} with plan {plan}")
 
+def get_user_email(chat_id):
+    subscribers = load_subscribers()
+    data = subscribers.get(str(chat_id), {})
+    return data.get("email")
+
+def set_user_email(chat_id, email):
+    subscribers = load_subscribers()
+    if str(chat_id) not in subscribers:
+        subscribers[str(chat_id)] = {}
+    subscribers[str(chat_id)]["email"] = email
+    save_subscribers(subscribers)
+
 # ==================== LEGAL TERMS ====================
 TERMS_FILE = "terms_accepted.json"
 
@@ -161,6 +173,7 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "You can now use the bot. Here are some suggestions:\n"
         "• Use /start to see the main menu.\n"
         "• Use /plans to view subscription plans.\n"
+        "• Use /setemail your@email.com to set your payment email.\n"
         "• Use /pay monthly (or quarterly, yearly, test) to activate Premium.\n"
         "• Use /whale to see whale movements (free).\n"
         "• Use /info BTC for detailed coin data.\n"
@@ -531,6 +544,7 @@ async def help_menu(query):
 /sell - Sell on Testnet (e.g. /sell 0.001 BTCUSDT)
 /activate - Activate your plan based on Binance balance
 /plan - Show your current plan
+/setemail - Set your email for payments
 /terms - Legal disclaimer
 
 *Custom alerts*
@@ -666,10 +680,34 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
     await update.message.reply_text("No news found at the moment. Try again later.")
 
-# ==================== PAYMENT COMMAND (WITH WEBHOOK SUPPORT) ====================
+# ==================== SETEMAIL COMMAND ====================
+async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    args = context.args
+    if not args:
+        await update.message.reply_text("❌ Usage: `/setemail tuemail@ejemplo.com`", parse_mode="Markdown")
+        return
+    email = args[0].strip()
+    if "@" not in email or "." not in email:
+        await update.message.reply_text("❌ Invalid email address.")
+        return
+    set_user_email(chat_id, email)
+    await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
+
+# ==================== PAYMENT COMMAND (USES SAVED EMAIL) ====================
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
+
+    # Check if email is set
+    user_email = get_user_email(chat_id)
+    if not user_email:
+        await update.message.reply_text(
+            "❌ Please set your email first using `/setemail tuemail@ejemplo.com`.\n"
+            "This email will be used to link your payment.",
+            parse_mode="Markdown"
+        )
+        return
 
     if not args:
         await update.message.reply_text(
@@ -704,14 +742,11 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly, test")
         return
 
-    # Email dinámico para evitar conflicto "payer and collector cannot be the same user"
-    payer_email = "zeurumai@gmail.com"
-
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
     subscription_data = {
         "reason": f"CryptoArch Agent - {plan_name} Plan",
         "external_reference": str(chat_id),
-        "payer_email": payer_email,
+        "payer_email": user_email,
         "back_url": "https://t.me/CryptoArchTrading_bot",
         "auto_recurring": {
             "frequency": frequency,
@@ -728,7 +763,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subscription = subscription_response["response"]
             payment_link = subscription.get("init_point")
             subscription_id = subscription.get("id")
-            # Guardar subscription_id
+            # Save subscription ID
             subscribers = load_subscribers()
             if str(chat_id) not in subscribers:
                 subscribers[str(chat_id)] = {}
@@ -970,7 +1005,6 @@ if MP_WEBHOOK_URL:
         data = request.json
         logger.info(f"📩 Webhook notification: {data}")
         try:
-            # Payment notification (one-time payment)
             if data.get("type") == "payment":
                 payment_id = data["data"]["id"]
                 sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
@@ -979,13 +1013,9 @@ if MP_WEBHOOK_URL:
                 external_ref = payment_data.get("external_reference")
                 status = payment_data.get("status")
                 if status == "approved" and external_ref:
-                    # external_reference is the chat_id (when using /pay command)
                     chat_id = external_ref
-                    # Determine plan from subscription? For simplicity, activate with a default plan
-                    # You could also store the plan when creating the subscription
-                    plan = "premium"
+                    plan = "premium"  # or extract from plan
                     activate_premium(chat_id, plan)
-            # Subscription preapproval notification
             elif data.get("type") == "subscription_preapproval":
                 subscription_id = data["data"]["id"]
                 sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
@@ -995,7 +1025,7 @@ if MP_WEBHOOK_URL:
                 external_ref = subscription_data.get("external_reference")
                 if subscription_status == "authorized" and external_ref:
                     chat_id = external_ref
-                    plan = "premium"  # or extract from subscription_data
+                    plan = "premium"
                     activate_premium(chat_id, plan)
             return "OK", 200
         except Exception as e:
@@ -1032,6 +1062,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("sell", sell))
     app.add_handler(CommandHandler("activate", activate))
     app.add_handler(CommandHandler("plan", plan))
+    app.add_handler(CommandHandler("setemail", setemail))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 
