@@ -85,6 +85,8 @@ def calculate_plan_end(plan: str, start_date: datetime) -> datetime:
         return start_date + timedelta(days=90)
     elif plan == "yearly":
         return start_date + timedelta(days=365)
+    elif plan == "test":
+        return start_date + timedelta(days=30)  # prueba, un mes
     else:
         return start_date
 
@@ -160,7 +162,7 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "You can now use the bot. Here are some suggestions:\n"
         "• Use /start to see the main menu.\n"
         "• Use /plans to view subscription plans.\n"
-        "• Use /pay monthly (or quarterly, yearly) to activate Premium.\n"
+        "• Use /pay monthly (or quarterly, yearly, test) to activate Premium.\n"
         "• Use /whale to see whale movements (free).\n"
         "• Use /info BTC for detailed coin data.\n"
         "• Use /news for latest crypto news.\n"
@@ -587,11 +589,13 @@ async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • *Monthly*: $190 / month
 • *Quarterly*: $540 / quarter (save $30)
 • *Yearly*: $1900 / year (save $380)
+• *Test*: $10 / month (for testing)
 
 To activate, type:
 /pay monthly
 /pay quarterly
 /pay yearly
+/pay test
 
 *Includes whale alerts, AI analysis and more.*
 """
@@ -668,17 +672,19 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     monthly = os.getenv("MP_PLAN_MONTHLY_ID")
     quarterly = os.getenv("MP_PLAN_QUARTERLY_ID")
     yearly = os.getenv("MP_PLAN_YEARLY_ID")
+    test_plan = os.getenv("MP_PLAN_TEST_ID")
     token = os.getenv("MP_ACCESS_TOKEN")[:20] if os.getenv("MP_ACCESS_TOKEN") else "None"
     msg = (
         f"🔍 *Variables de entorno*\n\n"
         f"Monthly ID: `{monthly}`\n"
         f"Quarterly ID: `{quarterly}`\n"
         f"Yearly ID: `{yearly}`\n"
+        f"Test ID: `{test_plan}`\n"
         f"Token (primeros 20): `{token}...`"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
-# ==================== PAYMENT COMMAND (CORRECTED - USES PLAN IDs) ====================
+# ==================== PAYMENT COMMAND (CORRECTED - USES PLAN IDs, INCLUDES TEST PLAN) ====================
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
@@ -688,7 +694,8 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "ℹ️ *Subscription plans*\n\n"
             "Use: `/pay monthly`\n"
             "Use: `/pay quarterly`\n"
-            "Use: `/pay yearly`\n\n"
+            "Use: `/pay yearly`\n"
+            "Use: `/pay test` (for testing, $10 MXN)\n\n"
             "You will receive a payment link. After the first payment, the subscription will renew automatically.",
             parse_mode="Markdown"
         )
@@ -707,8 +714,11 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif plan_key == "yearly":
         plan_id = os.getenv("MP_PLAN_YEARLY_ID")
         plan_name = "Yearly"
+    elif plan_key == "test":
+        plan_id = os.getenv("MP_PLAN_TEST_ID")
+        plan_name = "Test"
     else:
-        await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly")
+        await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly, test")
         return
 
     if not plan_id:
