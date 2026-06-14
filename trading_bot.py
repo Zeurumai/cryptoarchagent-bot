@@ -705,7 +705,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Email dinámico para evitar conflicto "payer and collector cannot be the same user"
-    payer_email = f"user_{chat_id}@telegram.user"
+    payer_email = "zeurumai@gmail.com"
 
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
     subscription_data = {
