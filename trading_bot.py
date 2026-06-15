@@ -8,7 +8,7 @@ import schedule
 import threading
 import asyncio
 import feedparser
-from datetime import datetime, timedelta 
+from datetime import datetime, timedelta
 from flask import Flask, request
 from dotenv import load_dotenv
 import mercadopago
@@ -86,14 +86,20 @@ def calculate_plan_end(plan: str, start_date: datetime) -> datetime:
         return start_date + timedelta(days=365)
     elif plan == "test":
         return start_date + timedelta(days=30)
+    elif plan == "premium":
+        return start_date + timedelta(days=30)  # plan genérico
     else:
         return start_date
 
 def is_premium(chat_id):
     subscribers = load_subscribers()
     data = subscribers.get(str(chat_id))
-    if not data or not data.get("active", False):
+    if not data:
         return False
+    active = data.get("active", False)
+    if not active:
+        return False
+    # Verificar expiración
     end_str = data.get("end")
     if end_str:
         end = datetime.fromisoformat(end_str)
@@ -582,18 +588,9 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     if is_premium(chat_id):
-        subscribers = load_subscribers()
-        data = subscribers.get(str(chat_id), {})
-        plan = data.get("plan", "monthly")
-        end = data.get("end")
-        if end:
-            end_date = datetime.fromisoformat(end).strftime("%d/%m/%Y")
-            message = f"✨ *You are PREMIUM* ✨\n\n📅 Plan: *{plan.capitalize()}*\n⏰ Valid until: {end_date}\n\n✅ Real trading access\n✅ Reduced fee 0.2%\n✅ Whale alerts"
-        else:
-            message = "✨ *You are PREMIUM* ✨\n\nPlan: *Lifetime*\n✅ Lifetime access\n✅ Whale alerts"
+        await update.message.reply_text("✨ *You are PREMIUM* ✨\n\nEnjoy the benefits!", parse_mode="Markdown")
     else:
-        message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans.\n💰 Plans from $190 MXN/month"
-    await update.message.reply_text(message, parse_mode="Markdown")
+        await update.message.reply_text("🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans.", parse_mode="Markdown")
 
 async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """
@@ -699,7 +696,6 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
 
-    # Check if email is set
     user_email = get_user_email(chat_id)
     if not user_email:
         await update.message.reply_text(
@@ -1014,7 +1010,7 @@ if MP_WEBHOOK_URL:
                 status = payment_data.get("status")
                 if status == "approved" and external_ref:
                     chat_id = external_ref
-                    plan = "premium"  # or extract from plan
+                    plan = "premium"
                     activate_premium(chat_id, plan)
             elif data.get("type") == "subscription_preapproval":
                 subscription_id = data["data"]["id"]
