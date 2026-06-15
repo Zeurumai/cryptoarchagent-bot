@@ -87,7 +87,7 @@ def calculate_plan_end(plan: str, start_date: datetime) -> datetime:
     elif plan == "test":
         return start_date + timedelta(days=30)
     elif plan == "premium":
-        return start_date + timedelta(days=30)  # plan genérico
+        return start_date + timedelta(days=30)  # default 30 days
     else:
         return start_date
 
@@ -99,7 +99,7 @@ def is_premium(chat_id):
     active = data.get("active", False)
     if not active:
         return False
-    # Verificar expiración
+    # Verificar expiración (si tiene fecha fin)
     end_str = data.get("end")
     if end_str:
         end = datetime.fromisoformat(end_str)
