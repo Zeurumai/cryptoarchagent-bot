@@ -69,13 +69,17 @@ SUBSCRIBERS_FILE = "subscribers.json"
 def load_subscribers():
     try:
         with open(SUBSCRIBERS_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            logger.info(f"📂 Loaded subscribers: {data}")
+            return data
     except FileNotFoundError:
+        logger.warning("subscribers.json not found, creating empty")
         return {}
 
 def save_subscribers(subscribers):
     with open(SUBSCRIBERS_FILE, "w") as f:
         json.dump(subscribers, f, indent=2, default=str)
+    logger.info(f"💾 Saved subscribers: {subscribers}")
 
 def calculate_plan_end(plan: str, start_date: datetime) -> datetime:
     if plan == "monthly":
@@ -95,18 +99,22 @@ def is_premium(chat_id):
     subscribers = load_subscribers()
     data = subscribers.get(str(chat_id))
     if not data:
+        logger.info(f"🔍 User {chat_id} not found in subscribers")
         return False
     active = data.get("active", False)
     if not active:
+        logger.info(f"🔍 User {chat_id} has active=False")
         return False
-    # Verificar expiración (si tiene fecha fin)
+    # Verificar expiración (opcional)
     end_str = data.get("end")
     if end_str:
         end = datetime.fromisoformat(end_str)
         if end < datetime.now():
+            logger.info(f"🔍 User {chat_id} subscription expired")
             data["active"] = False
             save_subscribers(subscribers)
             return False
+    logger.info(f"✅ User {chat_id} is PREMIUM")
     return True
 
 def activate_premium(chat_id, plan):
@@ -120,7 +128,7 @@ def activate_premium(chat_id, plan):
         "active": True
     }
     save_subscribers(subscribers)
-    logger.info(f"✅ Premium activated for {chat_id} with plan {plan}")
+    logger.info(f"🎉 Premium activated for {chat_id} with plan {plan}")
 
 def get_user_email(chat_id):
     subscribers = load_subscribers()
