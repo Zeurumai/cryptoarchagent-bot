@@ -76,7 +76,7 @@ else:
 
 SUBSCRIBERS_FILE = "subscribers.json"
 
-# ==================== NIVELES (PSICOLÓGICOS) ====================
+# ==================== NIVELES ====================
 LEVELS = {
     0: {
         "name": "Explorer",
@@ -105,7 +105,7 @@ LEVELS = {
     3: {
         "name": "Elite",
         "emoji": "👑",
-        "commission": 0.1,
+        "commission": 0.2,  # 0.2% para todos los Elite
         "insignia": "🏆",
         "benefits": "Beta features, exclusive badge, vote on new features",
         "active": True
@@ -197,7 +197,7 @@ def get_user_level(chat_id):
             if end < datetime.now():
                 data["active"] = False
                 save_subscribers(subscribers)
-                return -1  # Trial expirado
+                return -1
     return level
 
 def get_user_commission(chat_id):
@@ -266,7 +266,7 @@ def activate_premium(chat_id, plan_key):
         "start": start.isoformat(),
         "end": end.isoformat(),
         "active": True,
-        "deposit_level": 2,  # Pro
+        "deposit_level": 2,
         "commission_rate": 0.2,
         "insignia": "🌟"
     }
@@ -336,7 +336,7 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "To unlock full benefits:\n"
         "• Deposit ≥ 50 USDT → Trader (0.3% comisión)\n"
         "• Deposit ≥ 100 USDT → Pro (0.2% comisión, premium)\n"
-        "• Deposit ≥ 500 USDT → Elite (0.1% comisión, VIP)\n\n"
+        "• Deposit ≥ 500 USDT → Elite (0.2% comisión, VIP)\n\n"
         "Use /plan to see your current level.\n"
         "Use /activate to check your deposit level.",
         parse_mode="Markdown"
@@ -449,7 +449,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await terms_command(update, context)
         return
 
-    # Verificar trial expirado
     level = get_user_level(chat_id)
     if level == -1:
         await update.message.reply_text(
@@ -459,7 +458,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👉 {BINANCE_REFERRAL_LINK}\n"
             "   • Deposit ≥ 50 USDT → Trader (0.3% comisión)\n"
             "   • Deposit ≥ 100 USDT → Pro (0.2% + premium)\n"
-            "   • Deposit ≥ 500 USDT → Elite (0.1% + VIP)\n\n"
+            "   • Deposit ≥ 500 USDT → Elite (0.2% + VIP)\n\n"
             "2️⃣ *Pay a subscription* (no deposit required):\n"
             "   • Use /pay to activate premium.\n\n"
             "Choose the option that best suits you! 🚀",
@@ -467,7 +466,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Si es nuevo, iniciar trial
     subscribers = load_subscribers()
     data = subscribers.get(str(chat_id), {})
     if not data.get("trial_start") and level == 0:
@@ -678,7 +676,7 @@ To activate, type:
                 message += "2. Deposit the required amount:\n"
                 message += "   • Trader: 50 USDT (0.3% fee)\n"
                 message += "   • Pro: 100 USDT (0.2% fee + premium)\n"
-                message += "   • Elite: 500 USDT (0.1% fee + VIP benefits)\n"
+                message += "   • Elite: 500 USDT (0.2% fee + VIP benefits)\n"
                 message += "3. Run /activate to upgrade your level.\n"
         else:
             message = "⏰ *Trial expired.* Please deposit or subscribe to continue."
@@ -866,7 +864,7 @@ async def help_menu(query):
 🧭 Explorer (0.5% comisión) - 14 days free
 📊 Trader (0.3%) - Deposit ≥ 50 USDT
 ⭐ Pro (0.2% + premium) - Deposit ≥ 100 USDT
-👑 Elite (0.1% + VIP) - Deposit ≥ 500 USDT
+👑 Elite (0.2% + VIP) - Deposit ≥ 500 USDT
 
 ⚠️ *Legal*: Not a financial advisor. Use /terms for details.
 """
@@ -994,7 +992,7 @@ async def activate_from_callback(query, chat_id):
         "Minimum deposits for levels:\n"
         "• Trader: 50 USDT (0.3% fee)\n"
         "• Pro: 100 USDT (0.2% fee + premium)\n"
-        "• Elite: 500 USDT (0.1% fee + VIP benefits)",
+        "• Elite: 500 USDT (0.2% fee + VIP benefits)",
         parse_mode="Markdown"
     )
     try:
@@ -1003,7 +1001,7 @@ async def activate_from_callback(query, chat_id):
         btc_balance = engine.get_balance("BTC")
         if btc_balance >= 0.01 or usdt_balance >= 500:
             level = 3
-            commission = 0.1
+            commission = 0.2
             insignia = "👑"
             name = "Elite"
         elif usdt_balance >= 100:
@@ -1299,7 +1297,8 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if cost > usdt_balance:
             await update.message.reply_text(f"❌ Insufficient testnet balance. Need ~${cost:.2f} USDT. You have ${usdt_balance:.2f} USDT.")
             return
-        await update.message.reply_text(f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\nReply with *YES* (uppercase) to execute on testnet.\nCommission: {get_user_commission(chat_id)*100:.1f}%", parse_mode="Markdown")
+        commission = get_user_commission(chat_id)
+        await update.message.reply_text(f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\nReply with *YES* (uppercase) to execute on testnet.\nCommission: {commission*100:.1f}%", parse_mode="Markdown")
         context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount}
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
@@ -1338,7 +1337,8 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         price = engine.get_price(symbol)
         value = amount * price
-        await update.message.reply_text(f"🔴 *Confirm sell*\n{amount} {symbol} ≈ ${value:.2f} USD\nReply with *YES* (uppercase) to execute on testnet.\nCommission: {get_user_commission(chat_id)*100:.1f}%", parse_mode="Markdown")
+        commission = get_user_commission(chat_id)
+        await update.message.reply_text(f"🔴 *Confirm sell*\n{amount} {symbol} ≈ ${value:.2f} USD\nReply with *YES* (uppercase) to execute on testnet.\nCommission: {commission*100:.1f}%", parse_mode="Markdown")
         context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount}
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
@@ -1352,11 +1352,11 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     chat_id = update.effective_chat.id
     engine = TradingEngine(testnet=True)
+    commission = get_user_commission(chat_id)
     if order["type"] == "buy":
         result = engine.buy_market(order["symbol"], order["amount"])
         if result:
-            commission = get_user_commission(chat_id)
-            if commission is not None:
+            if commission is not None and commission > 0:
                 fee = order["amount"] * commission
                 logger.info(f"Commission charged: {fee} {order['symbol']} ({commission*100:.1f}%)")
             await update.message.reply_text(f"✅ Buy executed on testnet. ID: {result['orderId']}")
@@ -1365,8 +1365,7 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif order["type"] == "sell":
         result = engine.sell_market(order["symbol"], order["amount"])
         if result:
-            commission = get_user_commission(chat_id)
-            if commission is not None:
+            if commission is not None and commission > 0:
                 fee = order["amount"] * commission
                 logger.info(f"Commission charged: {fee} {order['symbol']} ({commission*100:.1f}%)")
             await update.message.reply_text(f"✅ Sell executed on testnet. ID: {result['orderId']}")
@@ -1384,7 +1383,7 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Minimum deposits for levels:\n"
         "• Trader: 50 USDT (0.3% fee)\n"
         "• Pro: 100 USDT (0.2% fee + premium)\n"
-        "• Elite: 500 USDT (0.1% fee + VIP benefits)",
+        "• Elite: 500 USDT (0.2% fee + VIP benefits)",
         parse_mode="Markdown"
     )
     try:
@@ -1393,7 +1392,7 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         btc_balance = engine.get_balance("BTC")
         if btc_balance >= 0.01 or usdt_balance >= 500:
             level = 3
-            commission = 0.1
+            commission = 0.2
             insignia = "👑"
             name = "Elite"
         elif usdt_balance >= 100:
@@ -1459,14 +1458,14 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message += "2. Deposit the required amount:\n"
             message += "   • Trader: 50 USDT (0.3% fee)\n"
             message += "   • Pro: 100 USDT (0.2% fee + premium)\n"
-            message += "   • Elite: 500 USDT (0.1% fee + VIP benefits)\n"
+            message += "   • Elite: 500 USDT (0.2% fee + VIP benefits)\n"
             message += "3. Run /activate to upgrade your level.\n"
     else:
         message = "⏰ *Trial expired.* Please deposit or subscribe to continue."
     await update.message.reply_text(message, parse_mode="Markdown")
 
-# ==================== ADMIN COMMAND (FORCE PREMIUM / ELITE) ====================
-ADMIN_IDS = [697114344]  # Tu ID de Telegram
+# ==================== ADMIN COMMAND ====================
+ADMIN_IDS = [8355456581]  # Tu ID de Telegram
 
 async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -1538,17 +1537,21 @@ if __name__ == "__main__":
         subscribers[admin_id] = {
             "plan": "free",
             "deposit_level": 3,
-            "commission_rate": 0.1,
+            "commission_rate": 0.2,
             "insignia": "👑",
             "active": True,
             "start": datetime.now().isoformat(),
             "end": (datetime.now() + timedelta(days=365)).isoformat()
         }
         save_subscribers(subscribers)
-        logger.info("👑 Admin set to ELITE level")
+        logger.info("👑 Admin set to ELITE level (0.2% commission)")
 
     if MP_WEBHOOK_URL:
         threading.Thread(target=run_webhook, daemon=True).start()
         logger.info("🔄 Webhook server started on port 5000 (or PORT env)")
     else:
         logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started.")
+
+    reschedule_reports()
+
+    ap
