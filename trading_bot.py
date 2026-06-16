@@ -19,7 +19,7 @@ from trading_engine import TradingEngine
 
 load_dotenv()
 
-# ==================== CONFIGURATION ====================
+# ==================== CONFIGURACIÓN ====================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     raise ValueError("❌ TELEGRAM_TOKEN not found. Set it in .env")
@@ -63,72 +63,56 @@ def save_user_data():
 
 load_user_data()
 
-# ==================== SUBSCRIPTIONS & PLANS ====================
+# ==================== SUBSCRIPTIONS & PLANS (PAGO ÚNICO) ====================
 SUBSCRIBERS_FILE = "subscribers.json"
 
 def load_subscribers():
     try:
         with open(SUBSCRIBERS_FILE, "r") as f:
-            data = json.load(f)
-            logger.info(f"📂 Loaded subscribers: {data}")
-            return data
+            return json.load(f)
     except FileNotFoundError:
-        logger.warning("subscribers.json not found, creating empty")
         return {}
 
 def save_subscribers(subscribers):
     with open(SUBSCRIBERS_FILE, "w") as f:
         json.dump(subscribers, f, indent=2, default=str)
-    logger.info(f"💾 Saved subscribers: {subscribers}")
 
-def calculate_plan_end(plan: str, start_date: datetime) -> datetime:
-    if plan == "monthly":
+def calculate_plan_end(plan_key: str, start_date: datetime) -> datetime:
+    if plan_key == "monthly":
         return start_date + timedelta(days=30)
-    elif plan == "quarterly":
+    elif plan_key == "quarterly":
         return start_date + timedelta(days=90)
-    elif plan == "yearly":
+    elif plan_key == "yearly":
         return start_date + timedelta(days=365)
-    elif plan == "test":
-        return start_date + timedelta(days=30)
-    elif plan == "premium":
-        return start_date + timedelta(days=30)  # default 30 days
     else:
-        return start_date
+        return start_date + timedelta(days=30)
 
 def is_premium(chat_id):
     subscribers = load_subscribers()
     data = subscribers.get(str(chat_id))
-    if not data:
-        logger.info(f"🔍 User {chat_id} not found in subscribers")
+    if not data or not data.get("active", False):
         return False
-    active = data.get("active", False)
-    if not active:
-        logger.info(f"🔍 User {chat_id} has active=False")
-        return False
-    # Verificar expiración (opcional)
     end_str = data.get("end")
     if end_str:
         end = datetime.fromisoformat(end_str)
         if end < datetime.now():
-            logger.info(f"🔍 User {chat_id} subscription expired")
             data["active"] = False
             save_subscribers(subscribers)
             return False
-    logger.info(f"✅ User {chat_id} is PREMIUM")
     return True
 
-def activate_premium(chat_id, plan):
+def activate_premium(chat_id, plan_key):
     subscribers = load_subscribers()
     start = datetime.now()
-    end = calculate_plan_end(plan, start)
+    end = calculate_plan_end(plan_key, start)
     subscribers[str(chat_id)] = {
-        "plan": plan,
+        "plan": plan_key,
         "start": start.isoformat(),
         "end": end.isoformat(),
         "active": True
     }
     save_subscribers(subscribers)
-    logger.info(f"🎉 Premium activated for {chat_id} with plan {plan}")
+    logger.info(f"✅ Premium activated for {chat_id} with plan {plan_key} until {end}")
 
 def get_user_email(chat_id):
     subscribers = load_subscribers()
@@ -188,7 +172,7 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Use /start to see the main menu.\n"
         "• Use /plans to view subscription plans.\n"
         "• Use /setemail your@email.com to set your payment email.\n"
-        "• Use /pay monthly (or quarterly, yearly, test) to activate Premium.\n"
+        "• Use /pay monthly (or quarterly, yearly) to activate Premium (one‑time payment).\n"
         "• Use /whale to see whale movements (free).\n"
         "• Use /info BTC for detailed coin data.\n"
         "• Use /news for latest crypto news.\n"
@@ -549,7 +533,7 @@ async def help_menu(query):
 /alerts - View/manage alerts
 /balance - Testnet balance
 /premium - Your premium status
-/pay - Activate Premium (auto payment)
+/pay - Activate Premium (one‑time payment)
 /plans - View subscription plans
 /whale - Whale movements (free, with AI)
 /info - Detailed coin info (e.g. /info BTC)
@@ -596,26 +580,33 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     if is_premium(chat_id):
-        await update.message.reply_text("✨ *You are PREMIUM* ✨\n\nEnjoy the benefits!", parse_mode="Markdown")
+        subscribers = load_subscribers()
+        data = subscribers.get(str(chat_id), {})
+        plan = data.get("plan", "monthly")
+        end_str = data.get("end")
+        if end_str:
+            end_date = datetime.fromisoformat(end_str).strftime("%d/%m/%Y")
+            message = f"✨ *You are PREMIUM* ✨\n\n📅 Plan: *{plan.capitalize()}*\n⏰ Valid until: {end_date}\n\n✅ Real trading access\n✅ Reduced fee 0.2%\n✅ Whale alerts"
+        else:
+            message = "✨ *You are PREMIUM* ✨\n\nPlan: *Lifetime*\n✅ Lifetime access\n✅ Whale alerts"
     else:
-        await update.message.reply_text("🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans.", parse_mode="Markdown")
+        message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans.", parse_mode="Markdown")
+    await update.message.reply_text(message, parse_mode="Markdown")
 
 async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """
-📅 *Subscription plans* (prices in MXN, fees included):
+📅 *Subscription plans* (prices in MXN, one‑time payment):
 
-• *Monthly*: $190 / month
-• *Quarterly*: $540 / quarter (save $30)
-• *Yearly*: $1900 / year (save $380)
-• *Test*: $10 / month (for testing)
+• *Monthly*: $190 / 30 days
+• *Quarterly*: $540 / 90 days (save $30)
+• *Yearly*: $1900 / 365 days (save $380)
 
 To activate, type:
 /pay monthly
 /pay quarterly
 /pay yearly
-/pay test
 
-*Includes whale alerts, AI analysis and more.*
+*After payment, your premium will be activated automatically.*
 """
     await update.message.reply_text(text, parse_mode="Markdown")
 
@@ -699,7 +690,7 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_user_email(chat_id, email)
     await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
 
-# ==================== PAYMENT COMMAND (USES SAVED EMAIL) ====================
+# ==================== PAYMENT COMMAND (ONE‑TIME PAYMENT) ====================
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
@@ -708,19 +699,18 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user_email:
         await update.message.reply_text(
             "❌ Please set your email first using `/setemail tuemail@ejemplo.com`.\n"
-            "This email will be used to link your payment.",
+            "This email will be used for the payment receipt.",
             parse_mode="Markdown"
         )
         return
 
     if not args:
         await update.message.reply_text(
-            "ℹ️ *Subscription plans*\n\n"
-            "Use: `/pay monthly` (MXN 190/mes)\n"
-            "Use: `/pay quarterly` (MXN 540/trimestre)\n"
-            "Use: `/pay yearly` (MXN 1900/año)\n"
-            "Use: `/pay test` (MXN 10/mes for testing)\n\n"
-            "You will receive a payment link. After the first payment, the subscription will renew automatically.",
+            "ℹ️ *One‑time payment plans*\n\n"
+            "Use: `/pay monthly` (MXN 190, 30 days)\n"
+            "Use: `/pay quarterly` (MXN 540, 90 days)\n"
+            "Use: `/pay yearly` (MXN 1900, 365 days)\n\n"
+            "You will receive a payment link. After payment, your Premium will be activated automatically.",
             parse_mode="Markdown"
         )
         return
@@ -728,66 +718,57 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plan_key = args[0].lower()
     if plan_key == "monthly":
         amount = 190.00
-        frequency = 1
+        days = 30
         plan_name = "Monthly"
     elif plan_key == "quarterly":
         amount = 540.00
-        frequency = 3
+        days = 90
         plan_name = "Quarterly"
     elif plan_key == "yearly":
         amount = 1900.00
-        frequency = 12
+        days = 365
         plan_name = "Yearly"
-    elif plan_key == "test":
-        amount = 10.00
-        frequency = 1
-        plan_name = "Test"
     else:
-        await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly, test")
+        await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly")
         return
 
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-    subscription_data = {
-        "reason": f"CryptoArch Agent - {plan_name} Plan",
-        "external_reference": str(chat_id),
-        "payer_email": user_email,
-        "back_url": "https://t.me/CryptoArchTrading_bot",
-        "auto_recurring": {
-            "frequency": frequency,
-            "frequency_type": "months",
-            "transaction_amount": amount,
-            "currency_id": "MXN"
-        }
+    preference_data = {
+        "items": [{
+            "title": f"CryptoArch Agent - {plan_name} Plan",
+            "quantity": 1,
+            "currency_id": "MXN",
+            "unit_price": amount
+        }],
+        "external_reference": f"{chat_id}:{plan_key}",
+        "payer": {"email": user_email},
+        "back_urls": {
+            "success": "https://t.me/CryptoArchTrading_bot",
+            "failure": "https://t.me/CryptoArchTrading_bot"
+        },
+        "auto_return": "approved",
+        "notification_url": MP_WEBHOOK_URL
     }
 
     try:
-        subscription_response = sdk.preapproval().create(subscription_data)
-        print("🔍 Full Mercado Pago response:", subscription_response)
-        if subscription_response.get("status") == 201:
-            subscription = subscription_response["response"]
-            payment_link = subscription.get("init_point")
-            subscription_id = subscription.get("id")
-            # Save subscription ID
-            subscribers = load_subscribers()
-            if str(chat_id) not in subscribers:
-                subscribers[str(chat_id)] = {}
-            subscribers[str(chat_id)]["subscription_id"] = subscription_id
-            subscribers[str(chat_id)]["status"] = "pending"
-            save_subscribers(subscribers)
+        response = sdk.preference().create(preference_data)
+        print("🔍 Mercado Pago response:", response)
+        if response.get("status") == 201:
+            payment_link = response["response"]["init_point"]
             await update.message.reply_text(
-                f"✅ *Subscription created successfully!*\n\n"
-                f"🔗 [Click here to pay and activate]({payment_link})\n\n"
-                f"After payment, your Premium will be activated automatically.\n"
-                f"Future renewals will be automatic.",
+                f"✅ *Payment generated for {plan_name} plan*\n\n"
+                f"🔗 [Click here to pay ${amount} MXN]({payment_link})\n\n"
+                f"After payment, your Premium will be activated for {days} days.\n"
+                f"Renewal is not automatic – you will be notified before expiration.",
                 parse_mode="Markdown",
                 disable_web_page_preview=True
             )
         else:
-            error_msg = subscription_response.get("response", {}).get("message", "Unknown error")
-            await update.message.reply_text(f"❌ Error: {error_msg}")
+            error_msg = response.get("message", "Unknown error")
+            await update.message.reply_text(f"❌ Error creating payment: {error_msg}")
     except Exception as e:
-        logger.error(f"Error creating subscription: {e}")
-        await update.message.reply_text(f"❌ Error: {str(e)}")
+        logger.error(f"Error in /pay: {e}")
+        await update.message.reply_text("❌ Internal error. Try again later.")
 
 # ==================== WHALE ALERTS (AI) ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1000,7 +981,7 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += "5. Run /activate again.\n"
     await update.message.reply_text(message, parse_mode="Markdown")
 
-# ==================== WEBHOOK ====================
+# ==================== WEBHOOK (for Mercado Pago one‑time payments) ====================
 if MP_WEBHOOK_URL:
     webhook_app = Flask(__name__)
 
@@ -1017,20 +998,10 @@ if MP_WEBHOOK_URL:
                 external_ref = payment_data.get("external_reference")
                 status = payment_data.get("status")
                 if status == "approved" and external_ref:
-                    chat_id = external_ref
-                    plan = "premium"
-                    activate_premium(chat_id, plan)
-            elif data.get("type") == "subscription_preapproval":
-                subscription_id = data["data"]["id"]
-                sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-                subscription_response = sdk.preapproval().get(subscription_id)
-                subscription_data = subscription_response["response"]
-                subscription_status = subscription_data.get("status")
-                external_ref = subscription_data.get("external_reference")
-                if subscription_status == "authorized" and external_ref:
-                    chat_id = external_ref
-                    plan = "premium"
-                    activate_premium(chat_id, plan)
+                    parts = external_ref.split(":")
+                    if len(parts) == 2:
+                        chat_id, plan_key = parts
+                        activate_premium(chat_id, plan_key)
             return "OK", 200
         except Exception as e:
             logger.error(f"Webhook error: {e}")
