@@ -63,7 +63,7 @@ def save_user_data():
 
 load_user_data()
 
-# ==================== SUBSCRIPTIONS & PLANS (PAGO ÚNICO) ====================
+# ==================== SUBSCRIPTIONS & PLANS ====================
 SUBSCRIBERS_FILE = "subscribers.json"
 
 def load_subscribers():
@@ -84,7 +84,7 @@ def calculate_plan_end(plan_key: str, start_date: datetime) -> datetime:
         return start_date + timedelta(days=90)
     elif plan_key == "yearly":
         return start_date + timedelta(days=365)
-    elif plan_key == "test":          # Plan de prueba 7 días
+    elif plan_key == "test":
         return start_date + timedelta(days=7)
     else:
         return start_date + timedelta(days=30)
@@ -115,6 +115,9 @@ def activate_premium(chat_id, plan_key):
     }
     save_subscribers(subscribers)
     logger.info(f"✅ Premium activated for {chat_id} with plan {plan_key} until {end}")
+    # Enviar notificación al usuario
+    send_telegram(int(chat_id), f"🎉 *Premium Activado!*\n\nPlan: *{plan_key.capitalize()}*\nVálido hasta: {end.strftime('%d/%m/%Y')}\n\nGracias por tu pago. Ya tienes acceso a todas las funciones Premium.")
+    return True
 
 def get_user_email(chat_id):
     subscribers = load_subscribers()
@@ -174,13 +177,13 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Use /start to see the main menu.\n"
         "• Use /plans to view subscription plans.\n"
         "• Use /setemail your@email.com to set your payment email.\n"
-        "• Use /pay monthly (or quarterly, yearly, test) to activate Premium (one‑time payment).\n"
+        "• Use /pay test (or monthly, quarterly, yearly) to activate Premium.\n"
         "• Use /whale to see whale movements (free).\n"
         "• Use /info BTC for detailed coin data.\n"
         "• Use /news for latest crypto news.\n"
         "• Use /balance to see Testnet balance.\n"
         "• Use /buy and /sell to trade on Testnet.\n"
-        "• Use /activate to activate your plan based on Binance balance.\n"
+        "• Use /activate to upgrade your plan based on Binance balance.\n"
         "• Use /plan to see your current plan.\n\n"
         "If you have questions, type /help.",
         parse_mode="Markdown"
@@ -209,6 +212,7 @@ def get_coin_price_by_id(coin_id):
         return None
 
 def send_telegram(chat_id, message):
+    """Envía un mensaje a un usuario de Telegram (función sincrónica)"""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
         requests.post(url, json={"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}, timeout=10)
@@ -316,6 +320,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start(update, context)
 
+# ==================== CALLBACK HANDLER (TODOS LOS BOTONES FUNCIONAN) ====================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -355,35 +360,120 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "help":
         await help_menu(query)
     elif data == "balance":
-        await balance(update, context)
+        try:
+            engine = TradingEngine(testnet=True)
+            usdt_balance = engine.get_balance("USDT")
+            btc_balance = engine.get_balance("BTC")
+            message = f"💰 *Testnet Balance*\nUSDT: ${usdt_balance:.2f}\nBTC: {btc_balance:.8f}\n\n⚠️ This is TESTNET balance (fake money). To trade real money, deposit on real Binance and use /activate."
+            await query.edit_message_text(message, parse_mode="Markdown")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error: {e}. Check your Binance Testnet API keys in .env", parse_mode="Markdown")
     elif data == "premium":
-        await premium(update, context)
-    elif data == "pay":
-        await query.edit_message_text(
-            "❌ To activate Premium, use the /pay command followed by the plan.\n"
-            "Example: /pay test\n\nTo see plans, use /plans"
-        )
+        if is_premium(chat_id):
+            subscribers = load_subscribers()
+            data_sub = subscribers.get(str(chat_id), {})
+            plan = data_sub.get("plan", "monthly")
+            end_str = data_sub.get("end")
+            if end_str:
+                end_date = datetime.fromisoformat(end_str).strftime("%d/%m/%Y")
+                message = f"✨ *You are PREMIUM* ✨\n\n📅 Plan: *{plan.capitalize()}*\n⏰ Valid until: {end_date}\n\n✅ Real trading access\n✅ Reduced fee 0.2%\n✅ Whale alerts"
+            else:
+                message = "✨ *You are PREMIUM* ✨\n\nPlan: *Lifetime*\n✅ Lifetime access\n✅ Whale alerts"
+        else:
+            message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans."
+        await query.edit_message_text(message, parse_mode="Markdown")
     elif data == "whale":
-        await whale(update, context)
+        await whale_callback(query)
     elif data == "plans":
-        await plans_command(update, context)
+        text = """
+📅 *Subscription plans* (prices in MXN, one‑time payment):
+
+• *Test*: $10 / 7 days
+• *Monthly*: $190 / 30 days
+• *Quarterly*: $540 / 90 days (save $30)
+• *Yearly*: $1900 / 365 days (save $380)
+
+To activate, type:
+/pay test
+/pay monthly
+/pay quarterly
+/pay yearly
+
+*After payment, your premium will be activated automatically.*
+"""
+        await query.edit_message_text(text, parse_mode="Markdown")
     elif data == "news":
-        await news_command(update, context)
+        await query.edit_message_text("📰 *Fetching latest news...*", parse_mode="Markdown")
+        sources = [
+            "https://cointelegraph.com/rss",
+            "https://cryptopotato.com/feed/",
+            "https://news.google.com/rss/search?q=cryptocurrency&hl=en&gl=US&ceid=US:en"
+        ]
+        for url in sources:
+            try:
+                feed = feedparser.parse(url)
+                if feed.entries:
+                    message = "📰 *Latest crypto news*\n\n"
+                    for entry in feed.entries[:5]:
+                        title = entry.title
+                        link = entry.link
+                        message += f"• [{title}]({link})\n"
+                    await query.edit_message_text(message, parse_mode="Markdown", disable_web_page_preview=True)
+                    return
+            except Exception as e:
+                logger.warning(f"Error with source {url}: {e}")
+                continue
+        await query.edit_message_text("No news found at the moment. Try again later.", parse_mode="Markdown")
     elif data == "info":
-        await info_command(update, context)
+        keyboard = [
+            [InlineKeyboardButton("BTC", callback_data="info_coin_BTC")],
+            [InlineKeyboardButton("ETH", callback_data="info_coin_ETH")],
+            [InlineKeyboardButton("SOL", callback_data="info_coin_SOL")],
+            [InlineKeyboardButton("XRP", callback_data="info_coin_XRP")],
+            [InlineKeyboardButton("BNB", callback_data="info_coin_BNB")],
+            [InlineKeyboardButton("LINK", callback_data="info_coin_LINK")],
+            [InlineKeyboardButton("AVAX", callback_data="info_coin_AVAX")],
+            [InlineKeyboardButton("🔙 Back", callback_data="menu")]
+        ]
+        await query.edit_message_text("📈 *Select a coin for detailed info*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    elif data.startswith("info_coin_"):
+        symbol = data.split("_")[2]
+        await show_coin_info(query, symbol)
     elif data == "buy":
-        await buy(update, context)
+        await query.edit_message_text("⚠️ To buy, use the command:\n`/buy [amount] [symbol]`\nExample: `/buy 0.001 BTCUSDT`\n\nYou can also reply with YES after the confirmation.", parse_mode="Markdown")
     elif data == "sell":
-        await sell(update, context)
+        await query.edit_message_text("⚠️ To sell, use the command:\n`/sell [amount] [symbol]`\nExample: `/sell 0.001 BTCUSDT`\n\nYou can also reply with YES after the confirmation.", parse_mode="Markdown")
     elif data == "activate":
-        await activate(update, context)
+        await activate_from_callback(query, chat_id)
     elif data == "plan":
-        await plan(update, context)
+        subscribers = load_subscribers()
+        data_sub = subscribers.get(str(chat_id), {"plan": "free", "fee": None})
+        current_plan = data_sub.get("plan", "free")
+        fee = data_sub.get("fee", None)
+        message = f"📋 *Your current plan (based on TESTNET balance): {current_plan.upper()}*\n"
+        if fee:
+            message += f"💰 Trade fee (testnet): {fee}%\n"
+        else:
+            message += "💰 No real trading.\n"
+        if current_plan == "lifetime":
+            message += "\n✨ *You already have the best plan. Thanks for trusting CryptoArch Agent.*"
+        else:
+            message += f"\n*How to upgrade to REAL money plan?*\n"
+            message += f"1. Register on Binance using our link: {BINANCE_REFERRAL_LINK}\n"
+            message += "2. Deposit the required amount:\n"
+            message += "   • Starter: 50 USDT (0.3% fee)\n"
+            message += "   • Pro: 100 USDT (0.2% fee)\n"
+            message += "   • Lifetime: 0.01 BTC or 500 USDT (0.2% fee + benefits)\n"
+            message += "3. Generate an API Key (trading permissions, no withdrawals).\n"
+            message += "4. Link it to the bot (edit your .env or use /setapi).\n"
+            message += "5. Run /activate again.\n"
+        await query.edit_message_text(message, parse_mode="Markdown")
     elif data == "menu":
         await start(update, context)
     else:
         await query.edit_message_text("❌ Invalid option.")
 
+# ==================== FUNCIONES AUXILIARES PARA CALLBACKS ====================
 async def show_status(query):
     prices = get_all_prices()
     if not prices:
@@ -566,6 +656,143 @@ async def help_menu(query):
 """
     await query.edit_message_text(message, parse_mode="Markdown")
 
+async def whale_callback(query):
+    await query.edit_message_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
+    btc_alerts, eth_alerts = await asyncio.gather(
+        obtener_alertas_bitcoin(min_value_usd=50000, limit=3),
+        obtener_alertas_ethereum(min_value_usd=10000, limit=3)
+    )
+    output = "📊 *RECENT WHALE MOVEMENTS*\n"
+    output += "_The following data is informational only. Not investment advice._\n\n"
+    if btc_alerts:
+        output += "₿ *Bitcoin (BTC)*\n"
+        for alert in btc_alerts:
+            emoji, desc, sentiment, value = analizar_alerta(alert)
+            output += f"{emoji} `{desc}`\n"
+            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+            ia_analysis = analizar_con_ia(
+                coin="BTC",
+                amount=alert["amount"],
+                value_usd=alert["amount_usd"],
+                tx_type=alert.get("transaction_type", "transfer"),
+                description=alert["description"]
+            )
+            if ia_analysis:
+                output += f"   🧠 *AI:* {ia_analysis}\n"
+            output += "\n"
+    else:
+        output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
+    if eth_alerts:
+        output += "⟠ *Ethereum (ETH)*\n"
+        for alert in eth_alerts:
+            emoji, desc, sentiment, value = analizar_alerta(alert)
+            output += f"{emoji} `{desc}`\n"
+            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+            ia_analysis = analizar_con_ia(
+                coin="ETH",
+                amount=alert["amount"],
+                value_usd=alert["amount_usd"],
+                tx_type=alert.get("transaction_type", "transfer"),
+                description=alert["description"]
+            )
+            if ia_analysis:
+                output += f"   🧠 *AI:* {ia_analysis}\n"
+            output += "\n"
+    else:
+        output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
+    output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
+    await query.edit_message_text(output, parse_mode="Markdown")
+
+async def show_coin_info(query, symbol):
+    mapping = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "XRP": "ripple",
+               "BNB": "binancecoin", "LINK": "chainlink", "AVAX": "avalanche-2"}
+    coin_id = mapping.get(symbol)
+    if not coin_id:
+        await query.edit_message_text("❌ Unsupported coin.")
+        return
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code != 200:
+            await query.edit_message_text("⚠️ Could not fetch data. Try again later.")
+            return
+        data = r.json()
+        price = data["market_data"]["current_price"]["usd"]
+        market_cap = data["market_data"]["market_cap"]["usd"]
+        volume = data["market_data"]["total_volume"]["usd"]
+        change_24h = data["market_data"]["price_change_percentage_24h"]
+        ath = data["market_data"]["ath"]["usd"]
+        atl = data["market_data"]["atl"]["usd"]
+        rank = data["market_cap_rank"]
+        message = (
+            f"📈 *{symbol} - {data['name']}*\n\n"
+            f"💰 Price: ${price:,.2f} USD\n"
+            f"📊 Market cap: ${market_cap:,.0f}\n"
+            f"📉 Volume (24h): ${volume:,.0f}\n"
+            f"📈 24h change: {change_24h:.2f}%\n"
+            f"🏆 All-time high: ${ath:,.2f}\n"
+            f"📉 All-time low: ${atl:,.2f}\n"
+            f"🔢 Rank: #{rank}\n\n"
+            f"Data from CoinGecko (informational only)."
+        )
+        await query.edit_message_text(message, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error in info callback: {e}")
+        await query.edit_message_text("❌ Error fetching data.")
+
+async def activate_from_callback(query, chat_id):
+    await query.edit_message_text(
+        "🔍 *Checking your Binance balance...*\n\n"
+        "⚠️ *IMPORTANT:* For the bot to trade with REAL money, you must:\n"
+        "1. Have a real Binance account (not testnet).\n"
+        "2. Deposit at least 50 USDT (or equivalent in BTC).\n"
+        "3. Generate an API Key with trading permissions (no withdrawals) and link it to the bot.\n"
+        "4. Run this command again.\n\n"
+        f"👉 *Don't have an account?* Use our referral link (lifetime reduced fees):\n{BINANCE_REFERRAL_LINK}\n\n"
+        "*(For now, the bot is in TESTNET mode, using fake money for you to practice)*",
+        parse_mode="Markdown"
+    )
+    try:
+        engine = TradingEngine(testnet=True)
+        usdt_balance = engine.get_balance("USDT")
+        btc_balance = engine.get_balance("BTC")
+        if btc_balance >= 0.01 or usdt_balance >= 500:
+            plan = "lifetime"
+            fee = 0.2
+        elif usdt_balance >= 100:
+            plan = "pro"
+            fee = 0.2
+        elif usdt_balance >= 50:
+            plan = "starter"
+            fee = 0.3
+        else:
+            plan = "free"
+            fee = None
+        subscribers = load_subscribers()
+        subscribers[str(chat_id)] = {
+            "plan": plan,
+            "fee": fee,
+            "active": True if plan != "free" else False
+        }
+        save_subscribers(subscribers)
+        message = f"✅ *Plan detected on TESTNET: {plan.upper()}*\n"
+        if fee:
+            message += f"💰 Trade fee (testnet): {fee}%\n"
+        else:
+            message += "💰 No real trading (testnet only).\n"
+        message += f"📊 Detected balance (TESTNET): USDT ${usdt_balance:.2f}, BTC {btc_balance:.8f}\n\n"
+        message += "🔐 To trade with REAL money, repeat this command after:\n"
+        message += f"1. Register on Binance using our link: {BINANCE_REFERRAL_LINK}\n"
+        message += "2. Deposit funds.\n"
+        message += "3. Link your real API (change your .env to production)."
+        await query.edit_message_text(message, parse_mode="Markdown")
+        # Notificar si se activó un plan de pago (starter/pro/lifetime)
+        if plan != "free":
+            send_telegram(chat_id, f"🎉 *Plan {plan.upper()} activado!*\n\nGracias por depositar fondos. Ya puedes operar con dinero real en testnet (próximamente producción).")
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error checking balance: {e}\nMake sure your Binance Testnet API keys are correct in .env.")
+
+# ==================== COMANDOS DE TEXTO ====================
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text(f"🆔 *Your user ID:* `{chat_id}`", parse_mode="Markdown")
@@ -615,7 +842,6 @@ To activate, type:
 """
     await update.message.reply_text(text, parse_mode="Markdown")
 
-# ==================== INFO & NEWS ====================
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:
@@ -681,7 +907,6 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
     await update.message.reply_text("No news found at the moment. Try again later.")
 
-# ==================== SETEMAIL COMMAND ====================
 async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
@@ -695,7 +920,7 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_user_email(chat_id, email)
     await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
 
-# ==================== PAYMENT COMMAND (ONE‑TIME PAYMENT) ====================
+# ==================== PAYMENT COMMAND (MERCADO PAGO) ====================
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
@@ -762,7 +987,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         response = sdk.preference().create(preference_data)
-        print("🔍 Mercado Pago response:", response)
+        logger.info(f"MercadoPago response: {response}")
         if response.get("status") == 201:
             payment_link = response["response"]["init_point"]
             await update.message.reply_text(
@@ -780,24 +1005,15 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in /pay: {e}")
         await update.message.reply_text("❌ Internal error. Try again later.")
 
-# ==================== WHALE ALERTS (AI) ====================
+# ==================== WHALE (COMANDO) ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.callback_query:
-        message = update.callback_query.message
-        await message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
-        await update.callback_query.answer()
-    else:
-        message = update.message
-        await message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
-
+    await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
     btc_alerts, eth_alerts = await asyncio.gather(
         obtener_alertas_bitcoin(min_value_usd=50000, limit=3),
         obtener_alertas_ethereum(min_value_usd=10000, limit=3)
     )
-
     output = "📊 *RECENT WHALE MOVEMENTS*\n"
     output += "_The following data is informational only. Not investment advice._\n\n"
-
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
         for alert in btc_alerts:
@@ -816,7 +1032,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             output += "\n"
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
-
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
         for alert in eth_alerts:
@@ -835,11 +1050,10 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             output += "\n"
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
-
     output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
-    await message.reply_text(output, parse_mode="Markdown")
+    await update.message.reply_text(output, parse_mode="Markdown")
 
-# ==================== SIMULATED TRADING (TESTNET) ====================
+# ==================== TRADING TESTNET ====================
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if len(args) != 2:
@@ -915,7 +1129,7 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Sell failed.")
     context.user_data.pop("pending_order", None)
 
-# ==================== PLAN ACTIVATION (BASED ON REAL BALANCE) ====================
+# ==================== ACTIVATE / PLAN (BASADO EN BALANCE) ====================
 async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text(
@@ -963,6 +1177,8 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += "2. Deposit funds.\n"
         message += "3. Link your real API (change your .env to production)."
         await update.message.reply_text(message, parse_mode="Markdown")
+        if plan != "free":
+            send_telegram(chat_id, f"🎉 *Plan {plan.upper()} activado!*\n\nGracias por depositar fondos. Ya puedes operar con dinero real en testnet (próximamente producción).")
     except Exception as e:
         await update.message.reply_text(f"❌ Error checking balance: {e}\nMake sure your Binance Testnet API keys are correct in .env.")
 
@@ -991,7 +1207,7 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += "5. Run /activate again.\n"
     await update.message.reply_text(message, parse_mode="Markdown")
 
-# ==================== WEBHOOK (for Mercado Pago one‑time payments) ====================
+# ==================== WEBHOOK (MERCADO PAGO) ====================
 if MP_WEBHOOK_URL:
     webhook_app = Flask(__name__)
 
@@ -1010,21 +1226,23 @@ if MP_WEBHOOK_URL:
                 if status == "approved" and external_ref:
                     parts = external_ref.split(":")
                     if len(parts) == 2:
-                        chat_id, plan_key = parts
-                        activate_premium(chat_id, plan_key)
+                        chat_id_str, plan_key = parts
+                        chat_id = int(chat_id_str)
+                        activate_premium(chat_id, plan_key)  # Esta función ya envía notificación
             return "OK", 200
         except Exception as e:
             logger.error(f"Webhook error: {e}")
             return "Error", 500
 
     def run_webhook():
-        webhook_app.run(host='0.0.0.0', port=5000)
+        port = int(os.getenv("PORT", 5000))
+        webhook_app.run(host='0.0.0.0', port=port)
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
     if MP_WEBHOOK_URL:
         threading.Thread(target=run_webhook, daemon=True).start()
-        logger.info("🔄 Webhook server started on port 5000")
+        logger.info("🔄 Webhook server started on port 5000 (or PORT env)")
     else:
         logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started.")
 
