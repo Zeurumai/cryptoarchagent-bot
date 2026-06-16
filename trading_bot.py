@@ -16,7 +16,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from whale_advanced import obtener_alertas_bitcoin, obtener_alertas_ethereum, analizar_alerta, analizar_con_ia
 from trading_engine import TradingEngine
-from supabase import create_client, Client  # <-- NUEVA IMPORTACIÓN
+from supabase import create_client, Client
 
 load_dotenv()
 
@@ -97,7 +97,6 @@ def load_subscribers():
             return {}
         except Exception as e:
             logger.error(f"Error cargando de Supabase: {e}")
-            # Fallback a archivo local
             try:
                 with open(SUBSCRIBERS_FILE, "r") as f:
                     return json.load(f)
@@ -113,9 +112,7 @@ def load_subscribers():
 def save_subscribers(subscribers):
     if supabase:
         try:
-            # Limpiar tabla
             supabase.table("subscriptions").delete().neq("chat_id", "none").execute()
-            # Insertar cada suscriptor
             for chat_id, data in subscribers.items():
                 row = {
                     "chat_id": chat_id,
@@ -130,7 +127,6 @@ def save_subscribers(subscribers):
             logger.info("✅ Suscriptores guardados en Supabase")
         except Exception as e:
             logger.error(f"Error guardando en Supabase: {e}")
-            # Fallback a archivo local
             try:
                 with open(SUBSCRIBERS_FILE, "w") as f:
                     json.dump(subscribers, f, indent=2, default=str)
@@ -720,14 +716,18 @@ async def help_menu(query):
 """
     await query.edit_message_text(message, parse_mode="Markdown")
 
-async def whale_callback(query):
-    await query.edit_message_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
+# ==================== FUNCIONES CORREGIDAS DE WHALE ====================
+async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
+    
     btc_alerts, eth_alerts = await asyncio.gather(
-        obtener_alertas_bitcoin(min_value_usd=50000, limit=3),
-        obtener_alertas_ethereum(min_value_usd=10000, limit=3)
+        asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3),
+        asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
     )
+    
     output = "📊 *RECENT WHALE MOVEMENTS*\n"
     output += "_The following data is informational only. Not investment advice._\n\n"
+    
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
         for alert in btc_alerts:
@@ -746,6 +746,7 @@ async def whale_callback(query):
             output += "\n"
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
+    
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
         for alert in eth_alerts:
@@ -764,6 +765,59 @@ async def whale_callback(query):
             output += "\n"
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
+    
+    output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
+    await update.message.reply_text(output, parse_mode="Markdown")
+
+async def whale_callback(query):
+    await query.edit_message_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
+    
+    btc_alerts, eth_alerts = await asyncio.gather(
+        asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3),
+        asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
+    )
+    
+    output = "📊 *RECENT WHALE MOVEMENTS*\n"
+    output += "_The following data is informational only. Not investment advice._\n\n"
+    
+    if btc_alerts:
+        output += "₿ *Bitcoin (BTC)*\n"
+        for alert in btc_alerts:
+            emoji, desc, sentiment, value = analizar_alerta(alert)
+            output += f"{emoji} `{desc}`\n"
+            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+            ia_analysis = analizar_con_ia(
+                coin="BTC",
+                amount=alert["amount"],
+                value_usd=alert["amount_usd"],
+                tx_type=alert.get("transaction_type", "transfer"),
+                description=alert["description"]
+            )
+            if ia_analysis:
+                output += f"   🧠 *AI:* {ia_analysis}\n"
+            output += "\n"
+    else:
+        output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
+    
+    if eth_alerts:
+        output += "⟠ *Ethereum (ETH)*\n"
+        for alert in eth_alerts:
+            emoji, desc, sentiment, value = analizar_alerta(alert)
+            output += f"{emoji} `{desc}`\n"
+            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+            ia_analysis = analizar_con_ia(
+                coin="ETH",
+                amount=alert["amount"],
+                value_usd=alert["amount_usd"],
+                tx_type=alert.get("transaction_type", "transfer"),
+                description=alert["description"]
+            )
+            if ia_analysis:
+                output += f"   🧠 *AI:* {ia_analysis}\n"
+            output += "\n"
+    else:
+        output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
+    
     output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
     await query.edit_message_text(output, parse_mode="Markdown")
 
@@ -1068,54 +1122,6 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in /pay: {e}")
         await update.message.reply_text("❌ Internal error. Try again later.")
 
-# ==================== WHALE ====================
-async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
-    btc_alerts, eth_alerts = await asyncio.gather(
-        obtener_alertas_bitcoin(min_value_usd=50000, limit=3),
-        obtener_alertas_ethereum(min_value_usd=10000, limit=3)
-    )
-    output = "📊 *RECENT WHALE MOVEMENTS*\n"
-    output += "_The following data is informational only. Not investment advice._\n\n"
-    if btc_alerts:
-        output += "₿ *Bitcoin (BTC)*\n"
-        for alert in btc_alerts:
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(
-                coin="BTC",
-                amount=alert["amount"],
-                value_usd=alert["amount_usd"],
-                tx_type=alert.get("transaction_type", "transfer"),
-                description=alert["description"]
-            )
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            output += "\n"
-    else:
-        output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
-    if eth_alerts:
-        output += "⟠ *Ethereum (ETH)*\n"
-        for alert in eth_alerts:
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(
-                coin="ETH",
-                amount=alert["amount"],
-                value_usd=alert["amount_usd"],
-                tx_type=alert.get("transaction_type", "transfer"),
-                description=alert["description"]
-            )
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            output += "\n"
-    else:
-        output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
-    output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
-    await update.message.reply_text(output, parse_mode="Markdown")
-
 # ==================== TRADING TESTNET ====================
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
@@ -1271,8 +1277,7 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message, parse_mode="Markdown")
 
 # ==================== COMANDO DE ADMIN (FORCE PREMIUM) ====================
-# REEMPLAZA ESTE NÚMERO CON TU CHAT ID (lo obtienes con /id)
-ADMIN_IDS = [8355456581]  # Ejemplo: [123456789]
+ADMIN_IDS = [697114344]  # Reemplaza con tu chat ID
 
 async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -1350,7 +1355,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("activate", activate))
     app.add_handler(CommandHandler("plan", plan))
     app.add_handler(CommandHandler("setemail", setemail))
-    app.add_handler(CommandHandler("force_premium", force_premium))  # NUEVO
+    app.add_handler(CommandHandler("force_premium", force_premium))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 
