@@ -590,7 +590,7 @@ async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             message = "✨ *You are PREMIUM* ✨\n\nPlan: *Lifetime*\n✅ Lifetime access\n✅ Whale alerts"
     else:
-        message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans.", parse_mode="Markdown")
+        message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans."   # ← línea corregida
     await update.message.reply_text(message, parse_mode="Markdown")
 
 async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
