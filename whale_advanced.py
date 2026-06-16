@@ -8,19 +8,19 @@ logger = logging.getLogger(__name__)
 
 # ==================== CONFIGURACIÓN ====================
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "")
-BSCSCAN_API_KEY = os.getenv("BSCSCAN_API_KEY", "")  # Opcional
+BSCSCAN_API_KEY = os.getenv("BSCSCAN_API_KEY", "")
 
 ETHERSCAN_API_URL = "https://api.etherscan.io/api"
 BSCSCAN_API_URL = "https://api.bscscan.com/api"
 BLOCKCHAIN_API_URL = "https://blockchain.info"
 
-# Lista de exchanges conocidos (para identificar movimientos)
+# Lista de exchanges conocidos
 EXCHANGE_ADDRESSES = [
     "binance", "coinbase", "kraken", "bitfinex", "huobi", "okx", "bybit",
     "gate.io", "kucoin", "crypto.com", "gemini", "bitstamp", "bittrex"
 ]
 
-# ==================== BITCOIN (Blockchain.com - sin API key) ====================
+# ==================== BITCOIN ====================
 def obtener_alertas_bitcoin(min_value_usd=50000, limit=3):
     try:
         url = f"{BLOCKCHAIN_API_URL}/unconfirmed-transactions?format=json"
@@ -41,10 +41,8 @@ def obtener_alertas_bitcoin(min_value_usd=50000, limit=3):
             total_btc = sum(out.get("value", 0) for out in tx.get("out", [])) / 100000000
             value_usd = total_btc * btc_usd_price
             if value_usd >= min_value_usd:
-                # Intentar identificar si es exchange o wallet fría
                 tx_type = "transfer"
                 description = f"BTC transaction of {total_btc:.2f} BTC"
-                # Analizar direcciones de salida
                 for out in tx.get("out", []):
                     addr = out.get("addr", "").lower()
                     if any(exchange in addr for exchange in EXCHANGE_ADDRESSES):
@@ -79,7 +77,7 @@ def _get_btc_usd_price():
         pass
     return None
 
-# ==================== ETHEREUM (Etherscan - con API key) ====================
+# ==================== ETHEREUM ====================
 def obtener_alertas_ethereum(min_value_usd=10000, limit=3):
     if not ETHERSCAN_API_KEY:
         logger.warning("Etherscan API key missing. ETH whale data unavailable.")
@@ -90,7 +88,6 @@ def obtener_alertas_ethereum(min_value_usd=10000, limit=3):
         if not eth_usd_price:
             eth_usd_price = 1800
 
-        # Usar Binance Hot Wallet para más actividad
         address = "0x28C6c06298d514Db089934071355E5743bf21d60"
         url = f"{ETHERSCAN_API_URL}?module=account&action=txlist&address={address}&sort=desc&apikey={ETHERSCAN_API_KEY}"
         response = requests.get(url, timeout=10)
@@ -114,14 +111,12 @@ def obtener_alertas_ethereum(min_value_usd=10000, limit=3):
                 to_addr = tx.get("to", "").lower()
                 tx_type = "transfer"
                 description = f"ETH transaction of {eth_amount:.2f} ETH"
-                # Analizar destino
                 if any(exchange in to_addr for exchange in EXCHANGE_ADDRESSES):
                     tx_type = "exchange_in"
                     description = f"ETH moving to exchange: {eth_amount:.2f} ETH"
                 elif "0x0000000000000000000000000000000000000000" in to_addr:
                     tx_type = "burn"
                     description = f"ETH burned: {eth_amount:.2f} ETH"
-                # Analizar origen
                 if any(exchange in from_addr for exchange in EXCHANGE_ADDRESSES):
                     tx_type = "exchange_out"
                     description = f"ETH moving from exchange: {eth_amount:.2f} ETH"
@@ -153,7 +148,7 @@ def _get_eth_usd_price():
         pass
     return None
 
-# ==================== BINANCE SMART CHAIN (BSCScan - con API key, opcional) ====================
+# ==================== BINANCE SMART CHAIN ====================
 def obtener_alertas_bsc(min_value_usd=5000, limit=3):
     if not BSCSCAN_API_KEY:
         logger.warning("BSCScan API key missing. BSC whale data unavailable.")
@@ -164,7 +159,7 @@ def obtener_alertas_bsc(min_value_usd=5000, limit=3):
         if not bnb_usd_price:
             bnb_usd_price = 600
 
-        address = "0x10ED43C718714eb63d5aA57B78B54704E256024E"  # PancakeSwap Router
+        address = "0x10ED43C718714eb63d5aA57B78B54704E256024E"
         url = f"{BSCSCAN_API_URL}?module=account&action=txlist&address={address}&sort=desc&apikey={BSCSCAN_API_KEY}"
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -221,7 +216,7 @@ def _get_bnb_usd_price():
         pass
     return None
 
-# ==================== FUNCIONES DE ANÁLISIS (MEJORADAS) ====================
+# ==================== FUNCIONES DE ANÁLISIS ====================
 def analizar_alerta(alert):
     try:
         amount = alert.get("amount", 0)
@@ -246,7 +241,7 @@ def analizar_alerta(alert):
 
 def analizar_con_ia(alert):
     """
-    Análisis inteligente basado en tipo de transacción y contexto.
+    Análisis inteligente basado en el tipo de transacción.
     """
     try:
         coin = alert.get("symbol", "BTC")
@@ -257,12 +252,10 @@ def analizar_con_ia(alert):
         from_addr = alert.get("from", "")
         to_addr = alert.get("to", "")
 
-        # Determinar tipo de movimiento
         is_exchange_in = tx_type == "exchange_in" or "exchange" in description.lower() and "to" in description.lower()
         is_exchange_out = tx_type == "exchange_out" or "exchange" in description.lower() and "from" in description.lower()
         is_cold_storage = "cold" in description.lower() or "wallet" in description.lower()
 
-        # Análisis según el contexto
         if is_exchange_in:
             if value_usd > 10000000:
                 return f"⚠️ Massive {coin} moving to exchange. Potential sell-off or distribution."
@@ -283,7 +276,6 @@ def analizar_con_ia(alert):
             return f"🏦 {coin} moved to cold storage. Long-term hodl signal."
 
         else:
-            # Transferencia entre carteras (neutral)
             if value_usd > 10000000:
                 return f"🔄 Massive {coin} transfer between wallets. Whale reallocation."
             elif value_usd > 1000000:
