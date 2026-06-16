@@ -1551,4 +1551,4 @@ if __name__ == "__main__":
         threading.Thread(target=run_webhook, daemon=True).start()
         logger.info("🔄 Webhook server started on port 5000 (or PORT env)")
     else:
-        logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not starte
+        logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started.")
