@@ -47,7 +47,7 @@ COINS = [
     ("avalanche-2", "AVAX", "Avalanche")
 ]
 
-# ==================== USER DATA (alerts & reports) ====================
+# ==================== USER DATA ====================
 USER_DATA = {}
 
 def load_user_data():
@@ -64,18 +64,18 @@ def save_user_data():
 
 load_user_data()
 
-# ==================== SUPABASE CONFIG ====================
+# ==================== SUPABASE ====================
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    logger.warning("⚠️ SUPABASE_URL o SUPABASE_KEY no configurados. Usando archivos locales.")
+    logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not configured. Using local files.")
     supabase = None
 else:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    logger.info("✅ Conectado a Supabase")
+    logger.info("✅ Connected to Supabase")
 
-# ==================== SUBSCRIPTIONS (Supabase + fallback local) ====================
+# ==================== SUBSCRIPTIONS ====================
 SUBSCRIBERS_FILE = "subscribers.json"
 
 def load_subscribers():
@@ -96,7 +96,7 @@ def load_subscribers():
                 return result
             return {}
         except Exception as e:
-            logger.error(f"Error cargando de Supabase: {e}")
+            logger.error(f"Error loading from Supabase: {e}")
             try:
                 with open(SUBSCRIBERS_FILE, "r") as f:
                     return json.load(f)
@@ -124,20 +124,20 @@ def save_subscribers(subscribers):
                     "email": data.get("email")
                 }
                 supabase.table("subscriptions").insert(row).execute()
-            logger.info("✅ Suscriptores guardados en Supabase")
+            logger.info("✅ Subscribers saved to Supabase")
         except Exception as e:
-            logger.error(f"Error guardando en Supabase: {e}")
+            logger.error(f"Error saving to Supabase: {e}")
             try:
                 with open(SUBSCRIBERS_FILE, "w") as f:
                     json.dump(subscribers, f, indent=2, default=str)
             except Exception as e2:
-                logger.error(f"Error guardando local: {e2}")
+                logger.error(f"Error saving locally: {e2}")
     else:
         try:
             with open(SUBSCRIBERS_FILE, "w") as f:
                 json.dump(subscribers, f, indent=2, default=str)
         except Exception as e:
-            logger.error(f"Error guardando local: {e}")
+            logger.error(f"Error saving locally: {e}")
 
 def calculate_plan_end(plan_key: str, start_date: datetime) -> datetime:
     if plan_key == "monthly":
@@ -177,7 +177,7 @@ def activate_premium(chat_id, plan_key):
     }
     save_subscribers(subscribers)
     logger.info(f"✅ Premium activated for {chat_id} with plan {plan_key} until {end}")
-    send_telegram(int(chat_id), f"🎉 *Premium Activado!*\n\nPlan: *{plan_key.capitalize()}*\nVálido hasta: {end.strftime('%d/%m/%Y')}\n\nGracias por tu pago. Ya tienes acceso a todas las funciones Premium.")
+    send_telegram(int(chat_id), f"🎉 *Premium Activated!*\n\nPlan: *{plan_key.capitalize()}*\nValid until: {end.strftime('%d/%m/%Y')}\n\nThank you for your payment. You now have access to all Premium features.")
     return True
 
 def get_user_email(chat_id):
@@ -533,7 +533,7 @@ To activate, type:
     else:
         await query.edit_message_text("❌ Invalid option.")
 
-# ==================== FUNCIONES AUXILIARES PARA CALLBACKS ====================
+# ==================== FUNCIONES AUXILIARES ====================
 async def show_status(query):
     prices = get_all_prices()
     if not prices:
@@ -716,11 +716,10 @@ async def help_menu(query):
 """
     await query.edit_message_text(message, parse_mode="Markdown")
 
-# ==================== FUNCIONES CORREGIDAS DE WHALE (SIN asyncio.gather) ====================
+# ==================== FUNCIONES WHALE (CORREGIDAS) ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
     
-    # Ejecutar funciones secuencialmente para evitar TypeError
     btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
     eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
     
@@ -733,13 +732,7 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             emoji, desc, sentiment, value = analizar_alerta(alert)
             output += f"{emoji} `{desc}`\n"
             output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(
-                coin="BTC",
-                amount=alert["amount"],
-                value_usd=alert["amount_usd"],
-                tx_type=alert.get("transaction_type", "transfer"),
-                description=alert["description"]
-            )
+            ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
             output += "\n"
@@ -752,13 +745,7 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             emoji, desc, sentiment, value = analizar_alerta(alert)
             output += f"{emoji} `{desc}`\n"
             output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(
-                coin="ETH",
-                amount=alert["amount"],
-                value_usd=alert["amount_usd"],
-                tx_type=alert.get("transaction_type", "transfer"),
-                description=alert["description"]
-            )
+            ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
             output += "\n"
@@ -783,13 +770,7 @@ async def whale_callback(query):
             emoji, desc, sentiment, value = analizar_alerta(alert)
             output += f"{emoji} `{desc}`\n"
             output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(
-                coin="BTC",
-                amount=alert["amount"],
-                value_usd=alert["amount_usd"],
-                tx_type=alert.get("transaction_type", "transfer"),
-                description=alert["description"]
-            )
+            ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
             output += "\n"
@@ -802,13 +783,7 @@ async def whale_callback(query):
             emoji, desc, sentiment, value = analizar_alerta(alert)
             output += f"{emoji} `{desc}`\n"
             output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(
-                coin="ETH",
-                amount=alert["amount"],
-                value_usd=alert["amount_usd"],
-                tx_type=alert.get("transaction_type", "transfer"),
-                description=alert["description"]
-            )
+            ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
             output += "\n"
@@ -902,7 +877,7 @@ async def activate_from_callback(query, chat_id):
         message += "3. Link your real API (change your .env to production)."
         await query.edit_message_text(message, parse_mode="Markdown")
         if plan != "free":
-            send_telegram(chat_id, f"🎉 *Plan {plan.upper()} activado!*\n\nGracias por depositar fondos. Ya puedes operar con dinero real en testnet (próximamente producción).")
+            send_telegram(chat_id, f"🎉 *Plan {plan.upper()} activated!*\n\nThank you for depositing funds. You can now trade with real money on testnet (production coming soon).")
     except Exception as e:
         await query.edit_message_text(f"❌ Error checking balance: {e}\nMake sure your Binance Testnet API keys are correct in .env.")
 
@@ -1025,7 +1000,7 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
     if not args:
-        await update.message.reply_text("❌ Usage: `/setemail tuemail@ejemplo.com`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Usage: `/setemail your@email.com`", parse_mode="Markdown")
         return
     email = args[0].strip()
     if "@" not in email or "." not in email:
@@ -1042,7 +1017,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_email = get_user_email(chat_id)
     if not user_email:
         await update.message.reply_text(
-            "❌ Please set your email first using `/setemail tuemail@ejemplo.com`.\n"
+            "❌ Please set your email first using `/setemail your@email.com`.\n"
             "This email will be used for the payment receipt.",
             parse_mode="Markdown"
         )
@@ -1244,7 +1219,7 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += "3. Link your real API (change your .env to production)."
         await update.message.reply_text(message, parse_mode="Markdown")
         if plan != "free":
-            send_telegram(chat_id, f"🎉 *Plan {plan.upper()} activado!*\n\nGracias por depositar fondos. Ya puedes operar con dinero real en testnet (próximamente producción).")
+            send_telegram(chat_id, f"🎉 *Plan {plan.upper()} activated!*\n\nThank you for depositing funds. You can now trade with real money on testnet (production coming soon).")
     except Exception as e:
         await update.message.reply_text(f"❌ Error checking balance: {e}\nMake sure your Binance Testnet API keys are correct in .env.")
 
@@ -1273,23 +1248,23 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += "5. Run /activate again.\n"
     await update.message.reply_text(message, parse_mode="Markdown")
 
-# ==================== COMANDO DE ADMIN (FORCE PREMIUM) ====================
-ADMIN_IDS = [697114344]  # Reemplaza con tu chat ID
+# ==================== COMANDO DE ADMIN ====================
+ADMIN_IDS = [697114344]
 
 async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     if chat_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ No autorizado.")
+        await update.message.reply_text("❌ Not authorized.")
         return
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("Uso: /force_premium ID PLAN")
+        await update.message.reply_text("Usage: /force_premium ID PLAN")
         return
     try:
         target_id = int(args[0])
         plan_key = args[1]
         activate_premium(target_id, plan_key)
-        await update.message.reply_text(f"✅ Premium reactivado para {target_id} con plan {plan_key}")
+        await update.message.reply_text(f"✅ Premium reactivated for {target_id} with plan {plan_key}")
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
