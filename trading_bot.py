@@ -716,14 +716,13 @@ async def help_menu(query):
 """
     await query.edit_message_text(message, parse_mode="Markdown")
 
-# ==================== FUNCIONES CORREGIDAS DE WHALE ====================
+# ==================== FUNCIONES CORREGIDAS DE WHALE (SIN asyncio.gather) ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
     
-    btc_alerts, eth_alerts = await asyncio.gather(
-        asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3),
-        asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
-    )
+    # Ejecutar funciones secuencialmente para evitar TypeError
+    btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
+    eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
     
     output = "📊 *RECENT WHALE MOVEMENTS*\n"
     output += "_The following data is informational only. Not investment advice._\n\n"
@@ -772,10 +771,8 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def whale_callback(query):
     await query.edit_message_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
     
-    btc_alerts, eth_alerts = await asyncio.gather(
-        asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3),
-        asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
-    )
+    btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
+    eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
     
     output = "📊 *RECENT WHALE MOVEMENTS*\n"
     output += "_The following data is informational only. Not investment advice._\n\n"
