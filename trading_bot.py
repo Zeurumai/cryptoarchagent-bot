@@ -76,7 +76,7 @@ else:
 
 SUBSCRIBERS_FILE = "subscribers.json"
 
-# ==================== NIVELES ====================
+# ==================== NIVELES (CORREGIDOS) ====================
 LEVELS = {
     0: {
         "name": "Explorer",
@@ -130,7 +130,7 @@ def load_subscribers():
                         "trial_start": row.get("trial_start"),
                         "trial_end": row.get("trial_end"),
                         "deposit_level": row.get("deposit_level", 0),
-                        "commission_rate": row.get("commission_rate", 0.5),
+                        "commission_rate": row.get("commission_rate", 0.005),
                         "insignia": row.get("insignia"),
                         "is_early_adopter": row.get("is_early_adopter", False)
                     }
@@ -166,7 +166,7 @@ def save_subscribers(subscribers):
                     "trial_start": data.get("trial_start"),
                     "trial_end": data.get("trial_end"),
                     "deposit_level": data.get("deposit_level", 0),
-                    "commission_rate": data.get("commission_rate", 0.5),
+                    "commission_rate": data.get("commission_rate", 0.005),
                     "insignia": data.get("insignia"),
                     "is_early_adopter": data.get("is_early_adopter", False)
                 }
@@ -224,7 +224,7 @@ def start_trial(chat_id):
         data["trial_start"] = datetime.now().isoformat()
         data["trial_end"] = (datetime.now() + timedelta(days=14)).isoformat()
         data["deposit_level"] = 0
-        data["commission_rate"] = 0.5
+        data["commission_rate"] = 0.005
         data["insignia"] = "🔰"
         data["active"] = True
         save_subscribers(subscribers)
@@ -267,7 +267,7 @@ def activate_premium(chat_id, plan_key):
         "end": end.isoformat(),
         "active": True,
         "deposit_level": 2,
-        "commission_rate": 0.2,
+        "commission_rate": 0.002,
         "insignia": "🌟"
     }
     save_subscribers(subscribers)
@@ -1001,22 +1001,22 @@ async def activate_from_callback(query, chat_id):
         btc_balance = engine.get_balance("BTC")
         if btc_balance >= 0.01 or usdt_balance >= 500:
             level = 3
-            commission = 0.2
+            commission = 0.002
             insignia = "👑"
             name = "Elite"
         elif usdt_balance >= 100:
             level = 2
-            commission = 0.2
+            commission = 0.002
             insignia = "🌟"
             name = "Pro"
         elif usdt_balance >= 50:
             level = 1
-            commission = 0.3
+            commission = 0.003
             insignia = "⚡"
             name = "Trader"
         else:
             level = 0
-            commission = 0.5
+            commission = 0.005
             insignia = "🔰"
             name = "Explorer (trial)"
         subscribers = load_subscribers()
@@ -1392,22 +1392,22 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         btc_balance = engine.get_balance("BTC")
         if btc_balance >= 0.01 or usdt_balance >= 500:
             level = 3
-            commission = 0.2
+            commission = 0.002
             insignia = "👑"
             name = "Elite"
         elif usdt_balance >= 100:
             level = 2
-            commission = 0.2
+            commission = 0.002
             insignia = "🌟"
             name = "Pro"
         elif usdt_balance >= 50:
             level = 1
-            commission = 0.3
+            commission = 0.003
             insignia = "⚡"
             name = "Trader"
         else:
             level = 0
-            commission = 0.5
+            commission = 0.005
             insignia = "🔰"
             name = "Explorer (trial)"
         subscribers = load_subscribers()
@@ -1528,6 +1528,7 @@ if MP_WEBHOOK_URL:
         port = int(os.getenv("PORT", 5000))
         webhook_app.run(host='0.0.0.0', port=port)
 
+# ==================== MAIN ====================
 if __name__ == "__main__":
     # Asignar nivel Elite al admin (8355456581) al iniciar
     subscribers = load_subscribers()
@@ -1536,7 +1537,7 @@ if __name__ == "__main__":
         subscribers[admin_id] = {
             "plan": "free",
             "deposit_level": 3,
-            "commission_rate": 0.2,
+            "commission_rate": 0.002,
             "insignia": "👑",
             "active": True,
             "start": datetime.now().isoformat(),
@@ -1549,37 +1550,4 @@ if __name__ == "__main__":
         threading.Thread(target=run_webhook, daemon=True).start()
         logger.info("🔄 Webhook server started on port 5000 (or PORT env)")
     else:
-        logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started.")
-
-    reschedule_reports()
-
-    app = Application.builder().token(TELEGRAM_TOKEN).build()  # <--- CORREGIDO
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("menu", menu_command))
-    app.add_handler(CommandHandler("balance", balance))
-    app.add_handler(CommandHandler("premium", premium))
-    app.add_handler(CommandHandler("pay", pay))
-    app.add_handler(CommandHandler("plans", plans_command))
-    app.add_handler(CommandHandler("id", id_command))
-    app.add_handler(CommandHandler("whale", whale))
-    app.add_handler(CommandHandler("terms", terms_command))
-    app.add_handler(CommandHandler("accept", accept_terms))
-    app.add_handler(CommandHandler("info", info_command))
-    app.add_handler(CommandHandler("news", news_command))
-    app.add_handler(CommandHandler("buy", buy))
-    app.add_handler(CommandHandler("sell", sell))
-    app.add_handler(CommandHandler("activate", activate))
-    app.add_handler(CommandHandler("plan", plan))
-    app.add_handler(CommandHandler("setemail", setemail))
-    app.add_handler(CommandHandler("force_premium", force_premium))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
-
-    def run_schedule():
-        while True:
-            schedule.run_pending()
-            time.sleep(1)
-    threading.Thread(target=run_schedule, daemon=True).start()
-
-    logger.info("🚀 Trading bot started successfully")
-    app.run_polling()
+        logger.info("⚠️ MP_WEBHOOK_URL not set. Webhoo
