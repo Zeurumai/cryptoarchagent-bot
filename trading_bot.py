@@ -573,7 +573,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans."
         await query.edit_message_text(message, parse_mode="Markdown")
     elif data == "whale":
-        await whale_callback(query)
+        await whale_callback(update, context)  # Pasamos context
     elif data == "plans":
         text = """
 📅 *Subscription plans* (prices in MXN, one‑time payment):
@@ -681,6 +681,8 @@ To activate, type:
         else:
             message = "⏰ *Trial expired.* Please deposit or subscribe to continue."
         await query.edit_message_text(message, parse_mode="Markdown")
+    elif data == "copy_whale":
+        await copy_whale_callback(update, context)
     elif data == "menu":
         await start(update, context)
     else:
@@ -859,6 +861,7 @@ async def help_menu(query):
 /sell - Sell on Testnet (e.g. /sell 0.001 BTCUSDT)
 /activate - Activate your plan based on Binance balance
 /plan - Show your current level
+/copy - Configure copy trading (e.g. /copy 20 1.5 follow on)
 
 *Benefits by level:*
 🧭 Explorer (0.5% comisión) - 14 days free
@@ -870,7 +873,7 @@ async def help_menu(query):
 """
     await query.edit_message_text(message, parse_mode="Markdown")
 
-# ==================== WHALE FUNCTIONS ====================
+# ==================== WHALE FUNCTIONS (con Copy Trading) ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
     btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
@@ -879,36 +882,51 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     output = "📊 *RECENT WHALE MOVEMENTS*\n"
     output += "_The following data is informational only. Not investment advice._\n\n"
 
+    # Guardar alertas en context para usarlas en el callback de copia
+    all_alerts = btc_alerts + eth_alerts
+    context.user_data["last_whale_alerts"] = all_alerts
+
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
-        for alert in btc_alerts:
+        for idx, alert in enumerate(btc_alerts):
             emoji, desc, sentiment, value = analizar_alerta(alert)
             output += f"{emoji} `{desc}`\n"
             output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            # Guardar alerta individual
+            context.user_data[f"whale_alert_{idx}"] = alert
+            output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
 
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
-        for alert in eth_alerts:
+        for idx, alert in enumerate(eth_alerts, start=len(btc_alerts)):
             emoji, desc, sentiment, value = analizar_alerta(alert)
             output += f"{emoji} `{desc}`\n"
             output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            context.user_data[f"whale_alert_{idx}"] = alert
+            output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
 
     output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
-    await update.message.reply_text(output, parse_mode="Markdown")
 
-async def whale_callback(query):
+    if all_alerts:
+        keyboard = [[InlineKeyboardButton("🐋 Copy this whale", callback_data="copy_whale")]]
+        await update.message.reply_text(output, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(output, parse_mode="Markdown")
+
+async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
     await query.edit_message_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
     btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
     eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
@@ -916,34 +934,46 @@ async def whale_callback(query):
     output = "📊 *RECENT WHALE MOVEMENTS*\n"
     output += "_The following data is informational only. Not investment advice._\n\n"
 
+    all_alerts = btc_alerts + eth_alerts
+    context.user_data["last_whale_alerts"] = all_alerts
+
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
-        for alert in btc_alerts:
+        for idx, alert in enumerate(btc_alerts):
             emoji, desc, sentiment, value = analizar_alerta(alert)
             output += f"{emoji} `{desc}`\n"
             output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            context.user_data[f"whale_alert_{idx}"] = alert
+            output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
 
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
-        for alert in eth_alerts:
+        for idx, alert in enumerate(eth_alerts, start=len(btc_alerts)):
             emoji, desc, sentiment, value = analizar_alerta(alert)
             output += f"{emoji} `{desc}`\n"
             output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            context.user_data[f"whale_alert_{idx}"] = alert
+            output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
 
     output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
-    await query.edit_message_text(output, parse_mode="Markdown")
+
+    if all_alerts:
+        keyboard = [[InlineKeyboardButton("🐋 Copy this whale", callback_data="copy_whale")]]
+        await query.edit_message_text(output, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await query.edit_message_text(output, parse_mode="Markdown")
 
 async def show_coin_info(query, symbol):
     mapping = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "XRP": "ripple",
@@ -1041,7 +1071,146 @@ async def activate_from_callback(query, chat_id):
     except Exception as e:
         await query.edit_message_text(f"❌ Error checking balance: {e}\nMake sure your Binance Testnet API keys are correct in .env.", parse_mode="Markdown")
 
-# ==================== COMMANDS ====================
+# ==================== COPY TRADING ====================
+async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    args = context.args
+
+    if not supabase:
+        await update.message.reply_text("❌ Base de datos no disponible.")
+        return
+
+    # Mostrar configuración actual
+    if not args:
+        try:
+            settings = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
+            if settings.data:
+                s = settings.data[0]
+                text = (
+                    f"🐋 *Copy Trading Settings*\n\n"
+                    f"💰 Max amount: {s['max_amount']} USDT\n"
+                    f"📉 Slippage: {s['slippage']}%\n"
+                    f"🔄 Mode: {s['mode']}\n"
+                    f"✅ Active: {'✅ Yes' if s['active'] else '❌ No'}\n\n"
+                    f"To change: `/copy [amount] [slippage] [mode] [on/off]`\n"
+                    f"Example: `/copy 20 1.5 follow on`"
+                )
+                await update.message.reply_text(text, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(
+                    "🐋 *Copy Trading not configured*\n\n"
+                    "Use: `/copy [amount] [slippage] [mode] [on/off]`\n"
+                    "Example: `/copy 20 1.5 follow on`\n\n"
+                    "Modes: `follow` (buy when whale buys) or `invert` (buy when whale sells)",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error loading settings: {e}")
+        return
+
+    # Procesar configuración
+    try:
+        if len(args) < 4:
+            await update.message.reply_text("❌ Usage: `/copy [amount] [slippage] [mode] [on/off]`")
+            return
+
+        max_amount = float(args[0])
+        slippage = float(args[1])
+        mode = args[2].lower()
+        active = args[3].lower() == "on"
+
+        if mode not in ["follow", "invert"]:
+            await update.message.reply_text("❌ Mode must be 'follow' or 'invert'")
+            return
+
+        if max_amount <= 0 or slippage < 0:
+            await update.message.reply_text("❌ Amount must be > 0 and slippage >= 0")
+            return
+
+        data = {
+            "chat_id": chat_id,
+            "max_amount": max_amount,
+            "slippage": slippage,
+            "mode": mode,
+            "active": active,
+            "updated_at": datetime.now().isoformat()
+        }
+        supabase.table("copy_settings").upsert(data).execute()
+
+        await update.message.reply_text(
+            f"✅ *Copy settings saved!*\n\n"
+            f"💰 Max amount: {max_amount} USDT\n"
+            f"📉 Slippage: {slippage}%\n"
+            f"🔄 Mode: {mode}\n"
+            f"✅ Active: {'✅ Yes' if active else '❌ No'}",
+            parse_mode="Markdown"
+        )
+    except ValueError:
+        await update.message.reply_text("❌ Invalid number format. Use decimal points (ej: 20.5)")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error saving settings: {e}")
+
+async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = str(update.effective_chat.id)
+
+    alerts = context.user_data.get("last_whale_alerts", [])
+    if not alerts:
+        await query.edit_message_text("⚠️ No whale alert available to copy.")
+        return
+
+    alert = alerts[0]  # Copiamos la primera ballena (se puede mejorar para elegir)
+    symbol = alert.get("symbol", "BTC")
+    amount = alert.get("amount", 0)
+    value_usd = alert.get("amount_usd", 0)
+    direction = alert.get("transaction_type", "transfer")
+
+    # Determinar dirección de trade
+    if direction in ["transfer", "exchange_out"]:
+        trade_direction = "sell"
+        emoji = "🔴"
+    else:
+        trade_direction = "buy"
+        emoji = "🟢"
+
+    try:
+        # Obtener configuración de copy del usuario
+        settings = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
+        if not settings.data or not settings.data[0].get("active", False):
+            await query.edit_message_text(
+                "❌ *Copy Trading not active or not configured.*\n\n"
+                "Use `/copy` to set up your copy trading settings.\n"
+                "Example: `/copy 20 1.5 follow on`",
+                parse_mode="Markdown"
+            )
+            return
+
+        s = settings.data[0]
+        max_amount = s["max_amount"]
+        slippage = s["slippage"] / 100.0
+        mode = s["mode"]
+
+        # Invertir dirección si está configurado
+        if mode == "invert":
+            trade_direction = "buy" if trade_direction == "sell" else "sell"
+            emoji = "🔄" + emoji
+
+        # Simulación de ejecución (en producción aquí se ejecutaría la orden real)
+        await query.edit_message_text(
+            f"🐋 *Copy Trade Execution*\n\n"
+            f"{emoji} Direction: *{trade_direction.upper()}*\n"
+            f"💰 Amount: ${max_amount:.2f} USDT\n"
+            f"📉 Slippage: {slippage*100:.1f}%\n"
+            f"🔄 Mode: {mode}\n"
+            f"📊 Asset: {symbol}\n\n"
+            f"⚡ *Simulation:* Order executed on testnet (real trading coming soon).",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error: {e}")
+
+# ==================== COMANDOS ====================
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text(f"🆔 *Your user ID:* `{chat_id}`", parse_mode="Markdown")
@@ -1564,6 +1733,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("plan", plan))
     app.add_handler(CommandHandler("setemail", setemail))
     app.add_handler(CommandHandler("force_premium", force_premium))
+    app.add_handler(CommandHandler("copy", copy))  # NUEVO comando copy
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 
