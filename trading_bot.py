@@ -30,7 +30,6 @@ if not MP_ACCESS_TOKEN:
     raise ValueError("❌ MP_ACCESS_TOKEN not found in .env")
 
 MP_WEBHOOK_URL = os.getenv("MP_WEBHOOK_URL")
-
 BINANCE_REFERRAL_LINK = os.getenv("BINANCE_REFERRAL_LINK", "https://www.binance.com/en/register?ref=YOUR_CODE")
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -75,9 +74,45 @@ else:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     logger.info("✅ Connected to Supabase")
 
-# ==================== SUBSCRIPTIONS ====================
 SUBSCRIBERS_FILE = "subscribers.json"
 
+# ==================== NIVELES (PSICOLÓGICOS) ====================
+LEVELS = {
+    0: {
+        "name": "Explorer",
+        "emoji": "🧭",
+        "commission": 0.5,
+        "insignia": "🔰",
+        "benefits": "14 days free, 3 alerts, trading access, whales, news",
+        "active": False
+    },
+    1: {
+        "name": "Trader",
+        "emoji": "📊",
+        "commission": 0.3,
+        "insignia": "⚡",
+        "benefits": "Full access, no subscription, reduced commission",
+        "active": True
+    },
+    2: {
+        "name": "Pro",
+        "emoji": "⭐",
+        "commission": 0.2,
+        "insignia": "🌟",
+        "benefits": "Subscription included, direct team access (priority)",
+        "active": True
+    },
+    3: {
+        "name": "Elite",
+        "emoji": "👑",
+        "commission": 0.1,
+        "insignia": "🏆",
+        "benefits": "Beta features, exclusive badge, vote on new features",
+        "active": True
+    }
+}
+
+# ==================== FUNCIONES DE SUSCRIPCIÓN ====================
 def load_subscribers():
     if supabase:
         try:
@@ -91,7 +126,13 @@ def load_subscribers():
                         "end": row.get("end_date"),
                         "active": row.get("active", True),
                         "fee": row.get("fee"),
-                        "email": row.get("email")
+                        "email": row.get("email"),
+                        "trial_start": row.get("trial_start"),
+                        "trial_end": row.get("trial_end"),
+                        "deposit_level": row.get("deposit_level", 0),
+                        "commission_rate": row.get("commission_rate", 0.5),
+                        "insignia": row.get("insignia"),
+                        "is_early_adopter": row.get("is_early_adopter", False)
                     }
                 return result
             return {}
@@ -121,7 +162,13 @@ def save_subscribers(subscribers):
                     "end_date": data.get("end"),
                     "active": data.get("active", True),
                     "fee": data.get("fee"),
-                    "email": data.get("email")
+                    "email": data.get("email"),
+                    "trial_start": data.get("trial_start"),
+                    "trial_end": data.get("trial_end"),
+                    "deposit_level": data.get("deposit_level", 0),
+                    "commission_rate": data.get("commission_rate", 0.5),
+                    "insignia": data.get("insignia"),
+                    "is_early_adopter": data.get("is_early_adopter", False)
                 }
                 supabase.table("subscriptions").insert(row).execute()
             logger.info("✅ Subscribers saved to Supabase")
@@ -138,6 +185,51 @@ def save_subscribers(subscribers):
                 json.dump(subscribers, f, indent=2, default=str)
         except Exception as e:
             logger.error(f"Error saving locally: {e}")
+
+def get_user_level(chat_id):
+    subscribers = load_subscribers()
+    data = subscribers.get(str(chat_id), {})
+    level = data.get("deposit_level", 0)
+    if level == 0:
+        trial_end = data.get("trial_end")
+        if trial_end:
+            end = datetime.fromisoformat(trial_end)
+            if end < datetime.now():
+                data["active"] = False
+                save_subscribers(subscribers)
+                return -1  # Trial expirado
+    return level
+
+def get_user_commission(chat_id):
+    level = get_user_level(chat_id)
+    if level < 0:
+        return None
+    return LEVELS.get(level, LEVELS[0])["commission"]
+
+def get_user_insignia(chat_id):
+    level = get_user_level(chat_id)
+    if level < 0:
+        return "❌"
+    return LEVELS.get(level, LEVELS[0])["insignia"]
+
+def get_level_benefits(level):
+    return LEVELS.get(level, LEVELS[0])["benefits"]
+
+def start_trial(chat_id):
+    subscribers = load_subscribers()
+    if str(chat_id) not in subscribers:
+        subscribers[str(chat_id)] = {}
+    data = subscribers[str(chat_id)]
+    if not data.get("trial_start"):
+        data["trial_start"] = datetime.now().isoformat()
+        data["trial_end"] = (datetime.now() + timedelta(days=14)).isoformat()
+        data["deposit_level"] = 0
+        data["commission_rate"] = 0.5
+        data["insignia"] = "🔰"
+        data["active"] = True
+        save_subscribers(subscribers)
+        return True
+    return False
 
 def calculate_plan_end(plan_key: str, start_date: datetime) -> datetime:
     if plan_key == "monthly":
@@ -173,7 +265,10 @@ def activate_premium(chat_id, plan_key):
         "plan": plan_key,
         "start": start.isoformat(),
         "end": end.isoformat(),
-        "active": True
+        "active": True,
+        "deposit_level": 2,  # Pro
+        "commission_rate": 0.2,
+        "insignia": "🌟"
     }
     save_subscribers(subscribers)
     logger.info(f"✅ Premium activated for {chat_id} with plan {plan_key} until {end}")
@@ -232,21 +327,18 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
     terms = load_terms()
     terms[chat_id] = True
     save_terms(terms)
+    start_trial(chat_id)
     await update.message.reply_text(
         "✅ *Welcome to CryptoArch Agent!*\n\n"
-        "You can now use the bot. Here are some suggestions:\n"
-        "• Use /start to see the main menu.\n"
-        "• Use /plans to view subscription plans.\n"
-        "• Use /setemail your@email.com to set your payment email.\n"
-        "• Use /pay test (or monthly, quarterly, yearly) to activate Premium.\n"
-        "• Use /whale to see whale movements (free).\n"
-        "• Use /info BTC for detailed coin data.\n"
-        "• Use /news for latest crypto news.\n"
-        "• Use /balance to see Testnet balance.\n"
-        "• Use /buy and /sell to trade on Testnet.\n"
-        "• Use /activate to upgrade your plan based on Binance balance.\n"
-        "• Use /plan to see your current plan.\n\n"
-        "If you have questions, type /help.",
+        "🧭 *You have 14 days FREE trial!*\n"
+        "• Commission: 0.5%\n"
+        "• Limited features (3 alerts)\n\n"
+        "To unlock full benefits:\n"
+        "• Deposit ≥ 50 USDT → Trader (0.3% comisión)\n"
+        "• Deposit ≥ 100 USDT → Pro (0.2% comisión, premium)\n"
+        "• Deposit ≥ 500 USDT → Elite (0.1% comisión, VIP)\n\n"
+        "Use /plan to see your current level.\n"
+        "Use /activate to check your deposit level.",
         parse_mode="Markdown"
     )
     await start(update, context)
@@ -357,13 +449,44 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await terms_command(update, context)
         return
 
+    # Verificar trial expirado
+    level = get_user_level(chat_id)
+    if level == -1:
+        await update.message.reply_text(
+            "⏰ *Your 14-day trial has expired!*\n\n"
+            "To continue trading with reduced commissions, you have two options:\n\n"
+            "1️⃣ *Deposit on Binance* using our referral link:\n"
+            f"👉 {BINANCE_REFERRAL_LINK}\n"
+            "   • Deposit ≥ 50 USDT → Trader (0.3% comisión)\n"
+            "   • Deposit ≥ 100 USDT → Pro (0.2% + premium)\n"
+            "   • Deposit ≥ 500 USDT → Elite (0.1% + VIP)\n\n"
+            "2️⃣ *Pay a subscription* (no deposit required):\n"
+            "   • Use /pay to activate premium.\n\n"
+            "Choose the option that best suits you! 🚀",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Si es nuevo, iniciar trial
+    subscribers = load_subscribers()
+    data = subscribers.get(str(chat_id), {})
+    if not data.get("trial_start") and level == 0:
+        start_trial(chat_id)
+        await update.message.reply_text(
+            "🧭 *You have 14 days FREE trial!*\n"
+            "• Commission: 0.5%\n"
+            "• 3 alerts limit\n\n"
+            "Upgrade with /activate to unlock full benefits.",
+            parse_mode="Markdown"
+        )
+
     keyboard = [
         [InlineKeyboardButton("📊 Market status", callback_data="status")],
         [InlineKeyboardButton("🔔 My alerts", callback_data="alerts_list")],
         [InlineKeyboardButton("➕ New alert", callback_data="new_alert_coin")],
         [InlineKeyboardButton("📅 Auto reports", callback_data="reports_config")],
         [InlineKeyboardButton("💰 My balance (Testnet)", callback_data="balance")],
-        [InlineKeyboardButton("💎 My status (Premium)", callback_data="premium")],
+        [InlineKeyboardButton("💎 My status", callback_data="premium")],
         [InlineKeyboardButton("💳 Activate Premium", callback_data="pay")],
         [InlineKeyboardButton("🐋 Whales (Free)", callback_data="whale")],
         [InlineKeyboardButton("📅 Plans", callback_data="plans")],
@@ -429,16 +552,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(f"❌ Error: {e}. Check your Binance Testnet API keys in .env", parse_mode="Markdown")
     elif data == "premium":
-        if is_premium(chat_id):
+        level = get_user_level(chat_id)
+        if level >= 1:
             subscribers = load_subscribers()
             data_sub = subscribers.get(str(chat_id), {})
-            plan = data_sub.get("plan", "monthly")
+            plan = data_sub.get("plan", "free")
             end_str = data_sub.get("end")
+            insignia = get_user_insignia(chat_id)
+            commission = get_user_commission(chat_id)
+            benefits = get_level_benefits(level)
+            level_name = LEVELS[level]["name"]
             if end_str:
                 end_date = datetime.fromisoformat(end_str).strftime("%d/%m/%Y")
-                message = f"✨ *You are PREMIUM* ✨\n\n📅 Plan: *{plan.capitalize()}*\n⏰ Valid until: {end_date}\n\n✅ Real trading access\n✅ Reduced fee 0.2%\n✅ Whale alerts"
+                message = f"✨ *{insignia} {level_name}* ✨\n\n📅 *Valid until:* {end_date}\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n\n✅ Real trading access\n✅ Reduced fee\n✅ Whale alerts"
             else:
-                message = "✨ *You are PREMIUM* ✨\n\nPlan: *Lifetime*\n✅ Lifetime access\n✅ Whale alerts"
+                message = f"✨ *{insignia} {level_name}* ✨\n\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n\n✅ Lifetime access\n✅ Whale alerts"
+        elif level == 0:
+            message = "🧭 *Explorer* (Trial)\n\n💰 Commission: 0.5%\n🎁 Benefits: 14 days free, 3 alerts, trading access\n\nUpgrade with /activate."
         else:
             message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans."
         await query.edit_message_text(message, parse_mode="Markdown")
@@ -500,33 +630,58 @@ To activate, type:
         symbol = data.split("_")[2]
         await show_coin_info(query, symbol)
     elif data == "buy":
-        await query.edit_message_text("⚠️ To buy, use the command:\n`/buy [amount] [symbol]`\nExample: `/buy 0.001 BTCUSDT`\n\nYou can also reply with YES after the confirmation.", parse_mode="Markdown")
+        level = get_user_level(chat_id)
+        if level == -1:
+            await query.edit_message_text(
+                "⏰ *Your trial has expired!*\n\n"
+                "To continue trading, deposit on Binance with our referral link:\n"
+                f"{BINANCE_REFERRAL_LINK}\n\n"
+                "Or subscribe with /pay.",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.edit_message_text("⚠️ To buy, use the command:\n`/buy [amount] [symbol]`\nExample: `/buy 0.001 BTCUSDT`\n\nYou can also reply with YES after the confirmation.", parse_mode="Markdown")
     elif data == "sell":
-        await query.edit_message_text("⚠️ To sell, use the command:\n`/sell [amount] [symbol]`\nExample: `/sell 0.001 BTCUSDT`\n\nYou can also reply with YES after the confirmation.", parse_mode="Markdown")
+        level = get_user_level(chat_id)
+        if level == -1:
+            await query.edit_message_text(
+                "⏰ *Your trial has expired!*\n\n"
+                "To continue trading, deposit on Binance with our referral link:\n"
+                f"{BINANCE_REFERRAL_LINK}\n\n"
+                "Or subscribe with /pay.",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.edit_message_text("⚠️ To sell, use the command:\n`/sell [amount] [symbol]`\nExample: `/sell 0.001 BTCUSDT`\n\nYou can also reply with YES after the confirmation.", parse_mode="Markdown")
     elif data == "activate":
         await activate_from_callback(query, chat_id)
     elif data == "plan":
         subscribers = load_subscribers()
         data_sub = subscribers.get(str(chat_id), {"plan": "free", "fee": None})
-        current_plan = data_sub.get("plan", "free")
         fee = data_sub.get("fee", None)
-        message = f"📋 *Your current plan (based on TESTNET balance): {current_plan.upper()}*\n"
-        if fee:
-            message += f"💰 Trade fee (testnet): {fee}%\n"
+        level = get_user_level(chat_id)
+        if level >= 0:
+            insignia = get_user_insignia(chat_id)
+            commission = get_user_commission(chat_id)
+            benefits = get_level_benefits(level)
+            level_name = LEVELS[level]["name"]
+            message = f"📋 *Your current level*\n\n{insignia} *{level_name}*\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n\n"
+            if fee:
+                message += f"💰 Trade fee (testnet): {fee}%\n"
+            else:
+                message += "💰 No real trading.\n"
+            if level == 3:
+                message += "\n👑 *You are an ELITE member!*"
+            else:
+                message += f"\n*How to upgrade?*\n"
+                message += f"1. Register on Binance using our link: {BINANCE_REFERRAL_LINK}\n"
+                message += "2. Deposit the required amount:\n"
+                message += "   • Trader: 50 USDT (0.3% fee)\n"
+                message += "   • Pro: 100 USDT (0.2% fee + premium)\n"
+                message += "   • Elite: 500 USDT (0.1% fee + VIP benefits)\n"
+                message += "3. Run /activate to upgrade your level.\n"
         else:
-            message += "💰 No real trading.\n"
-        if current_plan == "lifetime":
-            message += "\n✨ *You already have the best plan. Thanks for trusting CryptoArch Agent.*"
-        else:
-            message += f"\n*How to upgrade to REAL money plan?*\n"
-            message += f"1. Register on Binance using our link: {BINANCE_REFERRAL_LINK}\n"
-            message += "2. Deposit the required amount:\n"
-            message += "   • Starter: 50 USDT (0.3% fee)\n"
-            message += "   • Pro: 100 USDT (0.2% fee)\n"
-            message += "   • Lifetime: 0.01 BTC or 500 USDT (0.2% fee + benefits)\n"
-            message += "3. Generate an API Key (trading permissions, no withdrawals).\n"
-            message += "4. Link it to the bot (edit your .env or use /setapi).\n"
-            message += "5. Run /activate again.\n"
+            message = "⏰ *Trial expired.* Please deposit or subscribe to continue."
         await query.edit_message_text(message, parse_mode="Markdown")
     elif data == "menu":
         await start(update, context)
@@ -592,6 +747,18 @@ def delete_alert(chat_id, idx):
         save_user_data()
 
 async def new_alert_coin(query, chat_id):
+    level = get_user_level(chat_id)
+    if level == 0:
+        data = USER_DATA.get(str(chat_id), {})
+        alerts = data.get("alerts", [])
+        if len(alerts) >= 3:
+            await query.edit_message_text(
+                "⚠️ *Explorer users can only have 3 active alerts.*\n"
+                "Upgrade to Trader/Pro/Elite for unlimited alerts.\n"
+                "Use /activate to check your level.",
+                parse_mode="Markdown"
+            )
+            return
     keyboard = []
     for _, symbol, name in COINS:
         keyboard.append([InlineKeyboardButton(f"{symbol} - {name}", callback_data=f"new_alert_price_{symbol}")])
@@ -693,30 +860,19 @@ async def help_menu(query):
 /buy - Buy on Testnet (e.g. /buy 0.001 BTCUSDT)
 /sell - Sell on Testnet (e.g. /sell 0.001 BTCUSDT)
 /activate - Activate your plan based on Binance balance
-/plan - Show your current plan
-/setemail - Set your email for payments
-/terms - Legal disclaimer
+/plan - Show your current level
 
-*Custom alerts*
-- Price above/below target
-- Enable/disable alerts
-- Delete alerts
-
-*Auto reports*
-- Schedule morning, midday, evening reports
-
-*Real trading plans*
-- Free: no real trading (only testnet)
-- Test: 10 MXN / 7 days
-- Starter: deposit 50 USDT → 0.3% fee
-- Pro: deposit 100 USDT → 0.2% fee
-- Lifetime: deposit 0.01 BTC or 500 USDT → 0.2% fee + benefits
+*Benefits by level:*
+🧭 Explorer (0.5% comisión) - 14 days free
+📊 Trader (0.3%) - Deposit ≥ 50 USDT
+⭐ Pro (0.2% + premium) - Deposit ≥ 100 USDT
+👑 Elite (0.1% + VIP) - Deposit ≥ 500 USDT
 
 ⚠️ *Legal*: Not a financial advisor. Use /terms for details.
 """
     await query.edit_message_text(message, parse_mode="Markdown")
 
-# ==================== FUNCIONES WHALE (CORREGIDAS) ====================
+# ==================== WHALE FUNCTIONS ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
     
@@ -833,13 +989,12 @@ async def show_coin_info(query, symbol):
 async def activate_from_callback(query, chat_id):
     await query.edit_message_text(
         "🔍 *Checking your Binance balance...*\n\n"
-        "⚠️ *IMPORTANT:* For the bot to trade with REAL money, you must:\n"
-        "1. Have a real Binance account (not testnet).\n"
-        "2. Deposit at least 50 USDT (or equivalent in BTC).\n"
-        "3. Generate an API Key with trading permissions (no withdrawals) and link it to the bot.\n"
-        "4. Run this command again.\n\n"
-        f"👉 *Don't have an account?* Use our referral link (lifetime reduced fees):\n{BINANCE_REFERRAL_LINK}\n\n"
-        "*(For now, the bot is in TESTNET mode, using fake money for you to practice)*",
+        "⚠️ *IMPORTANT:* This checks your TESTNET balance.\n"
+        "To activate a real plan, deposit on real Binance.\n\n"
+        "Minimum deposits for levels:\n"
+        "• Trader: 50 USDT (0.3% fee)\n"
+        "• Pro: 100 USDT (0.2% fee + premium)\n"
+        "• Elite: 500 USDT (0.1% fee + VIP benefits)",
         parse_mode="Markdown"
     )
     try:
@@ -847,41 +1002,50 @@ async def activate_from_callback(query, chat_id):
         usdt_balance = engine.get_balance("USDT")
         btc_balance = engine.get_balance("BTC")
         if btc_balance >= 0.01 or usdt_balance >= 500:
-            plan = "lifetime"
-            fee = 0.2
+            level = 3
+            commission = 0.1
+            insignia = "👑"
+            name = "Elite"
         elif usdt_balance >= 100:
-            plan = "pro"
-            fee = 0.2
+            level = 2
+            commission = 0.2
+            insignia = "🌟"
+            name = "Pro"
         elif usdt_balance >= 50:
-            plan = "starter"
-            fee = 0.3
+            level = 1
+            commission = 0.3
+            insignia = "⚡"
+            name = "Trader"
         else:
-            plan = "free"
-            fee = None
+            level = 0
+            commission = 0.5
+            insignia = "🔰"
+            name = "Explorer (trial)"
         subscribers = load_subscribers()
         subscribers[str(chat_id)] = {
-            "plan": plan,
-            "fee": fee,
-            "active": True if plan != "free" else False
+            "plan": "free",
+            "deposit_level": level,
+            "commission_rate": commission,
+            "insignia": insignia,
+            "active": True if level > 0 else True
         }
         save_subscribers(subscribers)
-        message = f"✅ *Plan detected on TESTNET: {plan.upper()}*\n"
-        if fee:
-            message += f"💰 Trade fee (testnet): {fee}%\n"
-        else:
-            message += "💰 No real trading (testnet only).\n"
+        message = f"✅ *Level detected on TESTNET: {insignia} {name}*\n"
+        message += f"💰 Commission: {commission*100:.1f}%\n"
         message += f"📊 Detected balance (TESTNET): USDT ${usdt_balance:.2f}, BTC {btc_balance:.8f}\n\n"
-        message += "🔐 To trade with REAL money, repeat this command after:\n"
-        message += f"1. Register on Binance using our link: {BINANCE_REFERRAL_LINK}\n"
-        message += "2. Deposit funds.\n"
-        message += "3. Link your real API (change your .env to production)."
+        if level == 0:
+            message += "Deposit ≥ 50 USDT to reach Trader level."
+        elif level == 1:
+            message += "Deposit ≥ 100 USDT to reach Pro level."
+        elif level == 2:
+            message += "Deposit ≥ 500 USDT to reach Elite level."
+        else:
+            message += "👑 You are ELITE! Congratulations."
         await query.edit_message_text(message, parse_mode="Markdown")
-        if plan != "free":
-            send_telegram(chat_id, f"🎉 *Plan {plan.upper()} activated!*\n\nThank you for depositing funds. You can now trade with real money on testnet (production coming soon).")
     except Exception as e:
-        await query.edit_message_text(f"❌ Error checking balance: {e}\nMake sure your Binance Testnet API keys are correct in .env.")
+        await query.edit_message_text(f"❌ Error checking balance: {e}\nMake sure your Binance Testnet API keys are correct in .env.", parse_mode="Markdown")
 
-# ==================== COMANDOS DE TEXTO ====================
+# ==================== COMMANDS ====================
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text(f"🆔 *Your user ID:* `{chat_id}`", parse_mode="Markdown")
@@ -894,20 +1058,27 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = f"💰 *Testnet Balance*\nUSDT: ${usdt_balance:.2f}\nBTC: {btc_balance:.8f}\n\n⚠️ This is TESTNET balance (fake money). To trade real money, deposit on real Binance and use /activate."
         await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}. Check your Binance Testnet API keys in .env")
+        await update.message.reply_text(f"❌ Error: {e}. Check your Binance Testnet API keys in .env", parse_mode="Markdown")
 
 async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    if is_premium(chat_id):
+    level = get_user_level(chat_id)
+    if level >= 1:
         subscribers = load_subscribers()
         data = subscribers.get(str(chat_id), {})
-        plan = data.get("plan", "monthly")
+        plan = data.get("plan", "free")
         end_str = data.get("end")
+        insignia = get_user_insignia(chat_id)
+        commission = get_user_commission(chat_id)
+        benefits = get_level_benefits(level)
+        level_name = LEVELS[level]["name"]
         if end_str:
             end_date = datetime.fromisoformat(end_str).strftime("%d/%m/%Y")
-            message = f"✨ *You are PREMIUM* ✨\n\n📅 Plan: *{plan.capitalize()}*\n⏰ Valid until: {end_date}\n\n✅ Real trading access\n✅ Reduced fee 0.2%\n✅ Whale alerts"
+            message = f"✨ *{insignia} {level_name}* ✨\n\n📅 *Valid until:* {end_date}\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n\n✅ Real trading access\n✅ Reduced fee\n✅ Whale alerts"
         else:
-            message = "✨ *You are PREMIUM* ✨\n\nPlan: *Lifetime*\n✅ Lifetime access\n✅ Whale alerts"
+            message = f"✨ *{insignia} {level_name}* ✨\n\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n\n✅ Lifetime access\n✅ Whale alerts"
+    elif level == 0:
+        message = "🧭 *Explorer* (Trial)\n\n💰 Commission: 0.5%\n🎁 Benefits: 14 days free, 3 alerts, trading access\n\nUpgrade with /activate."
     else:
         message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans."
     await update.message.reply_text(message, parse_mode="Markdown")
@@ -1096,6 +1267,18 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== TRADING TESTNET ====================
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    level = get_user_level(chat_id)
+    if level == -1:
+        await update.message.reply_text(
+            "⏰ *Your trial has expired!*\n\n"
+            "To continue trading, deposit on Binance with our referral link:\n"
+            f"{BINANCE_REFERRAL_LINK}\n\n"
+            "Or subscribe with /pay.",
+            parse_mode="Markdown"
+        )
+        return
+
     args = context.args
     if len(args) != 2:
         await update.message.reply_text("⚠️ Usage: `/buy [amount] [symbol]`\nExample: `/buy 0.001 BTCUSDT`", parse_mode="Markdown")
@@ -1116,12 +1299,24 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if cost > usdt_balance:
             await update.message.reply_text(f"❌ Insufficient testnet balance. Need ~${cost:.2f} USDT. You have ${usdt_balance:.2f} USDT.")
             return
-        await update.message.reply_text(f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\nReply with *YES* (uppercase) to execute on testnet.", parse_mode="Markdown")
+        await update.message.reply_text(f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\nReply with *YES* (uppercase) to execute on testnet.\nCommission: {get_user_commission(chat_id)*100:.1f}%", parse_mode="Markdown")
         context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount}
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
 async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    level = get_user_level(chat_id)
+    if level == -1:
+        await update.message.reply_text(
+            "⏰ *Your trial has expired!*\n\n"
+            "To continue trading, deposit on Binance with our referral link:\n"
+            f"{BINANCE_REFERRAL_LINK}\n\n"
+            "Or subscribe with /pay.",
+            parse_mode="Markdown"
+        )
+        return
+
     args = context.args
     if len(args) != 2:
         await update.message.reply_text("⚠️ Usage: `/sell [amount] [symbol]`\nExample: `/sell 0.001 BTCUSDT`", parse_mode="Markdown")
@@ -1143,7 +1338,7 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         price = engine.get_price(symbol)
         value = amount * price
-        await update.message.reply_text(f"🔴 *Confirm sell*\n{amount} {symbol} ≈ ${value:.2f} USD\nReply with *YES* (uppercase) to execute on testnet.", parse_mode="Markdown")
+        await update.message.reply_text(f"🔴 *Confirm sell*\n{amount} {symbol} ≈ ${value:.2f} USD\nReply with *YES* (uppercase) to execute on testnet.\nCommission: {get_user_commission(chat_id)*100:.1f}%", parse_mode="Markdown")
         context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount}
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
@@ -1155,16 +1350,25 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order = context.user_data.get("pending_order")
     if not order:
         return
+    chat_id = update.effective_chat.id
     engine = TradingEngine(testnet=True)
     if order["type"] == "buy":
         result = engine.buy_market(order["symbol"], order["amount"])
         if result:
+            commission = get_user_commission(chat_id)
+            if commission is not None:
+                fee = order["amount"] * commission
+                logger.info(f"Commission charged: {fee} {order['symbol']} ({commission*100:.1f}%)")
             await update.message.reply_text(f"✅ Buy executed on testnet. ID: {result['orderId']}")
         else:
             await update.message.reply_text("❌ Buy failed.")
     elif order["type"] == "sell":
         result = engine.sell_market(order["symbol"], order["amount"])
         if result:
+            commission = get_user_commission(chat_id)
+            if commission is not None:
+                fee = order["amount"] * commission
+                logger.info(f"Commission charged: {fee} {order['symbol']} ({commission*100:.1f}%)")
             await update.message.reply_text(f"✅ Sell executed on testnet. ID: {result['orderId']}")
         else:
             await update.message.reply_text("❌ Sell failed.")
@@ -1175,13 +1379,12 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text(
         "🔍 *Checking your Binance balance...*\n\n"
-        "⚠️ *IMPORTANT:* For the bot to trade with REAL money, you must:\n"
-        "1. Have a real Binance account (not testnet).\n"
-        "2. Deposit at least 50 USDT (or equivalent in BTC).\n"
-        "3. Generate an API Key with trading permissions (no withdrawals) and link it to the bot.\n"
-        "4. Run this command again.\n\n"
-        f"👉 *Don't have an account?* Use our referral link (lifetime reduced fees):\n{BINANCE_REFERRAL_LINK}\n\n"
-        "*(For now, the bot is in TESTNET mode, using fake money for you to practice)*",
+        "⚠️ *IMPORTANT:* This checks your TESTNET balance.\n"
+        "To activate a real plan, deposit on real Binance.\n\n"
+        "Minimum deposits for levels:\n"
+        "• Trader: 50 USDT (0.3% fee)\n"
+        "• Pro: 100 USDT (0.2% fee + premium)\n"
+        "• Elite: 500 USDT (0.1% fee + VIP benefits)",
         parse_mode="Markdown"
     )
     try:
@@ -1189,67 +1392,81 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         usdt_balance = engine.get_balance("USDT")
         btc_balance = engine.get_balance("BTC")
         if btc_balance >= 0.01 or usdt_balance >= 500:
-            plan = "lifetime"
-            fee = 0.2
+            level = 3
+            commission = 0.1
+            insignia = "👑"
+            name = "Elite"
         elif usdt_balance >= 100:
-            plan = "pro"
-            fee = 0.2
+            level = 2
+            commission = 0.2
+            insignia = "🌟"
+            name = "Pro"
         elif usdt_balance >= 50:
-            plan = "starter"
-            fee = 0.3
+            level = 1
+            commission = 0.3
+            insignia = "⚡"
+            name = "Trader"
         else:
-            plan = "free"
-            fee = None
+            level = 0
+            commission = 0.5
+            insignia = "🔰"
+            name = "Explorer (trial)"
         subscribers = load_subscribers()
         subscribers[str(chat_id)] = {
-            "plan": plan,
-            "fee": fee,
-            "active": True if plan != "free" else False
+            "plan": "free",
+            "deposit_level": level,
+            "commission_rate": commission,
+            "insignia": insignia,
+            "active": True if level > 0 else True
         }
         save_subscribers(subscribers)
-        message = f"✅ *Plan detected on TESTNET: {plan.upper()}*\n"
-        if fee:
-            message += f"💰 Trade fee (testnet): {fee}%\n"
-        else:
-            message += "💰 No real trading (testnet only).\n"
+        message = f"✅ *Level detected on TESTNET: {insignia} {name}*\n"
+        message += f"💰 Commission: {commission*100:.1f}%\n"
         message += f"📊 Detected balance (TESTNET): USDT ${usdt_balance:.2f}, BTC {btc_balance:.8f}\n\n"
-        message += "🔐 To trade with REAL money, repeat this command after:\n"
-        message += f"1. Register on Binance using our link: {BINANCE_REFERRAL_LINK}\n"
-        message += "2. Deposit funds.\n"
-        message += "3. Link your real API (change your .env to production)."
+        if level == 0:
+            message += "Deposit ≥ 50 USDT to reach Trader level."
+        elif level == 1:
+            message += "Deposit ≥ 100 USDT to reach Pro level."
+        elif level == 2:
+            message += "Deposit ≥ 500 USDT to reach Elite level."
+        else:
+            message += "👑 You are ELITE! Congratulations."
         await update.message.reply_text(message, parse_mode="Markdown")
-        if plan != "free":
-            send_telegram(chat_id, f"🎉 *Plan {plan.upper()} activated!*\n\nThank you for depositing funds. You can now trade with real money on testnet (production coming soon).")
     except Exception as e:
-        await update.message.reply_text(f"❌ Error checking balance: {e}\nMake sure your Binance Testnet API keys are correct in .env.")
+        await update.message.reply_text(f"❌ Error checking balance: {e}\nMake sure your Binance Testnet API keys are correct in .env.", parse_mode="Markdown")
 
 async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     subscribers = load_subscribers()
-    data = subscribers.get(str(chat_id), {"plan": "free", "fee": None})
-    current_plan = data.get("plan", "free")
-    fee = data.get("fee", None)
-    message = f"📋 *Your current plan (based on TESTNET balance): {current_plan.upper()}*\n"
-    if fee:
-        message += f"💰 Trade fee (testnet): {fee}%\n"
+    data_sub = subscribers.get(str(chat_id), {"plan": "free", "fee": None})
+    fee = data_sub.get("fee", None)
+    level = get_user_level(chat_id)
+    if level >= 0:
+        insignia = get_user_insignia(chat_id)
+        commission = get_user_commission(chat_id)
+        benefits = get_level_benefits(level)
+        level_name = LEVELS[level]["name"]
+        message = f"📋 *Your current level*\n\n{insignia} *{level_name}*\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n\n"
+        if fee:
+            message += f"💰 Trade fee (testnet): {fee}%\n"
+        else:
+            message += "💰 No real trading.\n"
+        if level == 3:
+            message += "\n👑 *You are an ELITE member!*"
+        else:
+            message += f"\n*How to upgrade?*\n"
+            message += f"1. Register on Binance using our link: {BINANCE_REFERRAL_LINK}\n"
+            message += "2. Deposit the required amount:\n"
+            message += "   • Trader: 50 USDT (0.3% fee)\n"
+            message += "   • Pro: 100 USDT (0.2% fee + premium)\n"
+            message += "   • Elite: 500 USDT (0.1% fee + VIP benefits)\n"
+            message += "3. Run /activate to upgrade your level.\n"
     else:
-        message += "💰 No real trading.\n"
-    if current_plan == "lifetime":
-        message += "\n✨ *You already have the best plan. Thanks for trusting CryptoArch Agent.*"
-    else:
-        message += f"\n*How to upgrade to REAL money plan?*\n"
-        message += f"1. Register on Binance using our link: {BINANCE_REFERRAL_LINK}\n"
-        message += "2. Deposit the required amount:\n"
-        message += "   • Starter: 50 USDT (0.3% fee)\n"
-        message += "   • Pro: 100 USDT (0.2% fee)\n"
-        message += "   • Lifetime: 0.01 BTC or 500 USDT (0.2% fee + benefits)\n"
-        message += "3. Generate an API Key (trading permissions, no withdrawals).\n"
-        message += "4. Link it to the bot (edit your .env or use /setapi).\n"
-        message += "5. Run /activate again.\n"
+        message = "⏰ *Trial expired.* Please deposit or subscribe to continue."
     await update.message.reply_text(message, parse_mode="Markdown")
 
-# ==================== COMANDO DE ADMIN ====================
-ADMIN_IDS = [697114344]
+# ==================== ADMIN COMMAND (FORCE PREMIUM / ELITE) ====================
+ADMIN_IDS = [697114344]  # Tu ID de Telegram
 
 async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -1258,13 +1475,26 @@ async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("Usage: /force_premium ID PLAN")
+        await update.message.reply_text("Usage: /force_premium ID LEVEL (0-3)")
         return
     try:
         target_id = int(args[0])
-        plan_key = args[1]
-        activate_premium(target_id, plan_key)
-        await update.message.reply_text(f"✅ Premium reactivated for {target_id} with plan {plan_key}")
+        level = int(args[1])
+        if level < 0 or level > 3:
+            await update.message.reply_text("Level must be 0-3.")
+            return
+        subscribers = load_subscribers()
+        subscribers[str(target_id)] = {
+            "plan": "free",
+            "deposit_level": level,
+            "commission_rate": LEVELS[level]["commission"],
+            "insignia": LEVELS[level]["insignia"],
+            "active": True,
+            "start": datetime.now().isoformat(),
+            "end": (datetime.now() + timedelta(days=365)).isoformat()
+        }
+        save_subscribers(subscribers)
+        await update.message.reply_text(f"✅ User {target_id} set to level {level} ({LEVELS[level]['name']})")
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
@@ -1301,41 +1531,24 @@ if MP_WEBHOOK_URL:
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
+    # Asignar nivel Elite al admin (8355456581) al iniciar
+    subscribers = load_subscribers()
+    admin_id = str(8355456581)
+    if admin_id not in subscribers or subscribers[admin_id].get("deposit_level", 0) < 3:
+        subscribers[admin_id] = {
+            "plan": "free",
+            "deposit_level": 3,
+            "commission_rate": 0.1,
+            "insignia": "👑",
+            "active": True,
+            "start": datetime.now().isoformat(),
+            "end": (datetime.now() + timedelta(days=365)).isoformat()
+        }
+        save_subscribers(subscribers)
+        logger.info("👑 Admin set to ELITE level")
+
     if MP_WEBHOOK_URL:
         threading.Thread(target=run_webhook, daemon=True).start()
         logger.info("🔄 Webhook server started on port 5000 (or PORT env)")
     else:
-        logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started.")
-
-    reschedule_reports()
-
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("menu", menu_command))
-    app.add_handler(CommandHandler("balance", balance))
-    app.add_handler(CommandHandler("premium", premium))
-    app.add_handler(CommandHandler("pay", pay))
-    app.add_handler(CommandHandler("plans", plans_command))
-    app.add_handler(CommandHandler("id", id_command))
-    app.add_handler(CommandHandler("whale", whale))
-    app.add_handler(CommandHandler("terms", terms_command))
-    app.add_handler(CommandHandler("accept", accept_terms))
-    app.add_handler(CommandHandler("info", info_command))
-    app.add_handler(CommandHandler("news", news_command))
-    app.add_handler(CommandHandler("buy", buy))
-    app.add_handler(CommandHandler("sell", sell))
-    app.add_handler(CommandHandler("activate", activate))
-    app.add_handler(CommandHandler("plan", plan))
-    app.add_handler(CommandHandler("setemail", setemail))
-    app.add_handler(CommandHandler("force_premium", force_premium))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
-
-    def run_schedule():
-        while True:
-            schedule.run_pending()
-            time.sleep(1)
-    threading.Thread(target=run_schedule, daemon=True).start()
-
-    logger.info("🚀 Trading bot started successfully")
-    app.run_polling()
+        logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not starte
