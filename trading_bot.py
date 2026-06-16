@@ -873,13 +873,12 @@ async def help_menu(query):
 # ==================== WHALE FUNCTIONS ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
-    
     btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
     eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
-    
+
     output = "📊 *RECENT WHALE MOVEMENTS*\n"
     output += "_The following data is informational only. Not investment advice._\n\n"
-    
+
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
         for alert in btc_alerts:
@@ -892,7 +891,7 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             output += "\n"
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
-    
+
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
         for alert in eth_alerts:
@@ -905,19 +904,18 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             output += "\n"
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
-    
+
     output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
     await update.message.reply_text(output, parse_mode="Markdown")
 
 async def whale_callback(query):
     await query.edit_message_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
-    
     btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
     eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
-    
+
     output = "📊 *RECENT WHALE MOVEMENTS*\n"
     output += "_The following data is informational only. Not investment advice._\n\n"
-    
+
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
         for alert in btc_alerts:
@@ -930,7 +928,7 @@ async def whale_callback(query):
             output += "\n"
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
-    
+
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
         for alert in eth_alerts:
@@ -943,7 +941,7 @@ async def whale_callback(query):
             output += "\n"
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
-    
+
     output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
     await query.edit_message_text(output, parse_mode="Markdown")
 
@@ -1080,7 +1078,8 @@ async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans."
     await update.message.reply_text(message, parse_mode="Markdown")
-   async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """
 📅 *Subscription plans* (prices in MXN, one‑time payment):
 
