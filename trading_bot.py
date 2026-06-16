@@ -81,7 +81,7 @@ LEVELS = {
     0: {
         "name": "Explorer",
         "emoji": "🧭",
-        "commission": 0.5,
+        "commission": 0.005,  # 0.5%
         "insignia": "🔰",
         "benefits": "14 days free, 3 alerts, trading access, whales, news",
         "active": False
@@ -89,7 +89,7 @@ LEVELS = {
     1: {
         "name": "Trader",
         "emoji": "📊",
-        "commission": 0.3,
+        "commission": 0.003,  # 0.3%
         "insignia": "⚡",
         "benefits": "Full access, no subscription, reduced commission",
         "active": True
@@ -97,7 +97,7 @@ LEVELS = {
     2: {
         "name": "Pro",
         "emoji": "⭐",
-        "commission": 0.2,
+        "commission": 0.002,  # 0.2%
         "insignia": "🌟",
         "benefits": "Subscription included, direct team access (priority)",
         "active": True
@@ -105,7 +105,7 @@ LEVELS = {
     3: {
         "name": "Elite",
         "emoji": "👑",
-        "commission": 0.2,
+        "commission": 0.002,  # 0.2%
         "insignia": "🏆",
         "benefits": "Beta features, exclusive badge, vote on new features",
         "active": True
