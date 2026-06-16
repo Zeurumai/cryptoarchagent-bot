@@ -1272,7 +1272,7 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== COMANDO DE ADMIN (FORCE PREMIUM) ====================
 # REEMPLAZA ESTE NÚMERO CON TU CHAT ID (lo obtienes con /id)
-ADMIN_IDS = [697114344]  # Ejemplo: [123456789]
+ADMIN_IDS = [8355456581]  # Ejemplo: [123456789]
 
 async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
