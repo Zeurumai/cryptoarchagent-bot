@@ -1551,3 +1551,36 @@ if __name__ == "__main__":
         logger.info("🔄 Webhook server started on port 5000 (or PORT env)")
     else:
         logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started.")
+
+    reschedule_reports()
+
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", menu_command))
+    app.add_handler(CommandHandler("balance", balance))
+    app.add_handler(CommandHandler("premium", premium))
+    app.add_handler(CommandHandler("pay", pay))
+    app.add_handler(CommandHandler("plans", plans_command))
+    app.add_handler(CommandHandler("id", id_command))
+    app.add_handler(CommandHandler("whale", whale))
+    app.add_handler(CommandHandler("terms", terms_command))
+    app.add_handler(CommandHandler("accept", accept_terms))
+    app.add_handler(CommandHandler("info", info_command))
+    app.add_handler(CommandHandler("news", news_command))
+    app.add_handler(CommandHandler("buy", buy))
+    app.add_handler(CommandHandler("sell", sell))
+    app.add_handler(CommandHandler("activate", activate))
+    app.add_handler(CommandHandler("plan", plan))
+    app.add_handler(CommandHandler("setemail", setemail))
+    app.add_handler(CommandHandler("force_premium", force_premium))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
+
+    def run_schedule():
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
+    threading.Thread(target=run_schedule, daemon=True).start()
+
+    logger.info("🚀 Trading bot started successfully")
+    app.run_polling()
