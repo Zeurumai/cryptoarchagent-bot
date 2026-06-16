@@ -105,7 +105,7 @@ LEVELS = {
     3: {
         "name": "Elite",
         "emoji": "👑",
-        "commission": 0.2,  # 0.2% para todos los Elite
+        "commission": 0.2,
         "insignia": "🏆",
         "benefits": "Beta features, exclusive badge, vote on new features",
         "active": True
@@ -1554,4 +1554,4 @@ if __name__ == "__main__":
 
     reschedule_reports()
 
-    ap
+    app = Application.builder().tok
