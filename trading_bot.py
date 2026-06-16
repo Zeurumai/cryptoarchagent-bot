@@ -16,6 +16,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from whale_advanced import obtener_alertas_bitcoin, obtener_alertas_ethereum, analizar_alerta, analizar_con_ia
 from trading_engine import TradingEngine
+from supabase import create_client, Client  # <-- NUEVA IMPORTACIÓN
 
 load_dotenv()
 
@@ -63,19 +64,84 @@ def save_user_data():
 
 load_user_data()
 
-# ==================== SUBSCRIPTIONS & PLANS ====================
+# ==================== SUPABASE CONFIG ====================
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    logger.warning("⚠️ SUPABASE_URL o SUPABASE_KEY no configurados. Usando archivos locales.")
+    supabase = None
+else:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    logger.info("✅ Conectado a Supabase")
+
+# ==================== SUBSCRIPTIONS (Supabase + fallback local) ====================
 SUBSCRIBERS_FILE = "subscribers.json"
 
 def load_subscribers():
-    try:
-        with open(SUBSCRIBERS_FILE, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
+    if supabase:
+        try:
+            response = supabase.table("subscriptions").select("*").execute()
+            if response.data:
+                result = {}
+                for row in response.data:
+                    result[row["chat_id"]] = {
+                        "plan": row.get("plan", "free"),
+                        "start": row.get("start_date"),
+                        "end": row.get("end_date"),
+                        "active": row.get("active", True),
+                        "fee": row.get("fee"),
+                        "email": row.get("email")
+                    }
+                return result
+            return {}
+        except Exception as e:
+            logger.error(f"Error cargando de Supabase: {e}")
+            # Fallback a archivo local
+            try:
+                with open(SUBSCRIBERS_FILE, "r") as f:
+                    return json.load(f)
+            except FileNotFoundError:
+                return {}
+    else:
+        try:
+            with open(SUBSCRIBERS_FILE, "r") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return {}
 
 def save_subscribers(subscribers):
-    with open(SUBSCRIBERS_FILE, "w") as f:
-        json.dump(subscribers, f, indent=2, default=str)
+    if supabase:
+        try:
+            # Limpiar tabla
+            supabase.table("subscriptions").delete().neq("chat_id", "none").execute()
+            # Insertar cada suscriptor
+            for chat_id, data in subscribers.items():
+                row = {
+                    "chat_id": chat_id,
+                    "plan": data.get("plan", "free"),
+                    "start_date": data.get("start"),
+                    "end_date": data.get("end"),
+                    "active": data.get("active", True),
+                    "fee": data.get("fee"),
+                    "email": data.get("email")
+                }
+                supabase.table("subscriptions").insert(row).execute()
+            logger.info("✅ Suscriptores guardados en Supabase")
+        except Exception as e:
+            logger.error(f"Error guardando en Supabase: {e}")
+            # Fallback a archivo local
+            try:
+                with open(SUBSCRIBERS_FILE, "w") as f:
+                    json.dump(subscribers, f, indent=2, default=str)
+            except Exception as e2:
+                logger.error(f"Error guardando local: {e2}")
+    else:
+        try:
+            with open(SUBSCRIBERS_FILE, "w") as f:
+                json.dump(subscribers, f, indent=2, default=str)
+        except Exception as e:
+            logger.error(f"Error guardando local: {e}")
 
 def calculate_plan_end(plan_key: str, start_date: datetime) -> datetime:
     if plan_key == "monthly":
@@ -115,7 +181,6 @@ def activate_premium(chat_id, plan_key):
     }
     save_subscribers(subscribers)
     logger.info(f"✅ Premium activated for {chat_id} with plan {plan_key} until {end}")
-    # Enviar notificación al usuario
     send_telegram(int(chat_id), f"🎉 *Premium Activado!*\n\nPlan: *{plan_key.capitalize()}*\nVálido hasta: {end.strftime('%d/%m/%Y')}\n\nGracias por tu pago. Ya tienes acceso a todas las funciones Premium.")
     return True
 
@@ -212,7 +277,6 @@ def get_coin_price_by_id(coin_id):
         return None
 
 def send_telegram(chat_id, message):
-    """Envía un mensaje a un usuario de Telegram (función sincrónica)"""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
         requests.post(url, json={"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}, timeout=10)
@@ -320,7 +384,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start(update, context)
 
-# ==================== CALLBACK HANDLER (TODOS LOS BOTONES FUNCIONAN) ====================
+# ==================== CALLBACK HANDLER ====================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -786,7 +850,6 @@ async def activate_from_callback(query, chat_id):
         message += "2. Deposit funds.\n"
         message += "3. Link your real API (change your .env to production)."
         await query.edit_message_text(message, parse_mode="Markdown")
-        # Notificar si se activó un plan de pago (starter/pro/lifetime)
         if plan != "free":
             send_telegram(chat_id, f"🎉 *Plan {plan.upper()} activado!*\n\nGracias por depositar fondos. Ya puedes operar con dinero real en testnet (próximamente producción).")
     except Exception as e:
@@ -920,7 +983,7 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_user_email(chat_id, email)
     await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
 
-# ==================== PAYMENT COMMAND (MERCADO PAGO) ====================
+# ==================== PAYMENT COMMAND ====================
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
@@ -1005,7 +1068,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in /pay: {e}")
         await update.message.reply_text("❌ Internal error. Try again later.")
 
-# ==================== WHALE (COMANDO) ====================
+# ==================== WHALE ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
     btc_alerts, eth_alerts = await asyncio.gather(
@@ -1129,7 +1192,7 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Sell failed.")
     context.user_data.pop("pending_order", None)
 
-# ==================== ACTIVATE / PLAN (BASADO EN BALANCE) ====================
+# ==================== ACTIVATE / PLAN ====================
 async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text(
@@ -1207,7 +1270,28 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += "5. Run /activate again.\n"
     await update.message.reply_text(message, parse_mode="Markdown")
 
-# ==================== WEBHOOK (MERCADO PAGO) ====================
+# ==================== COMANDO DE ADMIN (FORCE PREMIUM) ====================
+# REEMPLAZA ESTE NÚMERO CON TU CHAT ID (lo obtienes con /id)
+ADMIN_IDS = [TU_CHAT_ID_AQUI]  # Ejemplo: [123456789]
+
+async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ No autorizado.")
+        return
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text("Uso: /force_premium ID PLAN")
+        return
+    try:
+        target_id = int(args[0])
+        plan_key = args[1]
+        activate_premium(target_id, plan_key)
+        await update.message.reply_text(f"✅ Premium reactivado para {target_id} con plan {plan_key}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
+# ==================== WEBHOOK ====================
 if MP_WEBHOOK_URL:
     webhook_app = Flask(__name__)
 
@@ -1228,7 +1312,7 @@ if MP_WEBHOOK_URL:
                     if len(parts) == 2:
                         chat_id_str, plan_key = parts
                         chat_id = int(chat_id_str)
-                        activate_premium(chat_id, plan_key)  # Esta función ya envía notificación
+                        activate_premium(chat_id, plan_key)
             return "OK", 200
         except Exception as e:
             logger.error(f"Webhook error: {e}")
@@ -1266,6 +1350,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("activate", activate))
     app.add_handler(CommandHandler("plan", plan))
     app.add_handler(CommandHandler("setemail", setemail))
+    app.add_handler(CommandHandler("force_premium", force_premium))  # NUEVO
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 
