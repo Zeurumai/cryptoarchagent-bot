@@ -238,8 +238,6 @@ def calculate_plan_end(plan_key: str, start_date: datetime) -> datetime:
         return start_date + timedelta(days=90)
     elif plan_key == "yearly":
         return start_date + timedelta(days=365)
-    elif plan_key == "test":
-        return start_date + timedelta(days=7)
     else:
         return start_date + timedelta(days=30)
 
@@ -333,10 +331,14 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🧭 *You have 14 days FREE trial!*\n"
         "• Commission: 0.5%\n"
         "• Limited features (3 alerts)\n\n"
-        "To unlock full benefits:\n"
-        "• Deposit ≥ 50 USDT → Trader (0.3% comisión)\n"
-        "• Deposit ≥ 100 USDT → Pro (0.2% comisión, premium)\n"
-        "• Deposit ≥ 500 USDT → Elite (0.2% comisión, VIP)\n\n"
+        "To unlock full benefits, you have two options:\n"
+        "1️⃣ *Deposit on Binance* using our referral link (no subscription):\n"
+        f"👉 {BINANCE_REFERRAL_LINK}\n"
+        "   • ≥ 50 USDT → Trader (0.3% comisión)\n"
+        "   • ≥ 100 USDT → Pro (0.2% comisión, premium)\n"
+        "   • ≥ 500 USDT → Elite (0.2% comisión, VIP)\n\n"
+        "2️⃣ *Pay a subscription* (no deposit required):\n"
+        "   • Use /pay to see plans (Pro level, 0.2% commission).\n\n"
         "Use /plan to see your current level.\n"
         "Use /activate to check your deposit level.",
         parse_mode="Markdown"
@@ -576,13 +578,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = """
 📅 *Subscription plans* (prices in MXN, one‑time payment):
 
-• *Test*: $10 / 7 days
 • *Monthly*: $190 / 30 days
 • *Quarterly*: $540 / 90 days (save $30)
 • *Yearly*: $1900 / 365 days (save $380)
 
 To activate, type:
-/pay test
 /pay monthly
 /pay quarterly
 /pay yearly
@@ -1080,18 +1080,15 @@ async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans."
     await update.message.reply_text(message, parse_mode="Markdown")
-
-async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """
 📅 *Subscription plans* (prices in MXN, one‑time payment):
 
-• *Test*: $10 / 7 days
 • *Monthly*: $190 / 30 days
 • *Quarterly*: $540 / 90 days (save $30)
 • *Yearly*: $1900 / 365 days (save $380)
 
 To activate, type:
-/pay test
 /pay monthly
 /pay quarterly
 /pay yearly
@@ -1195,7 +1192,6 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not args:
         await update.message.reply_text(
             "ℹ️ *One‑time payment plans*\n\n"
-            "Use: `/pay test` (MXN 10, 7 days)\n"
             "Use: `/pay monthly` (MXN 190, 30 days)\n"
             "Use: `/pay quarterly` (MXN 540, 90 days)\n"
             "Use: `/pay yearly` (MXN 1900, 365 days)\n\n"
@@ -1205,11 +1201,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     plan_key = args[0].lower()
-    if plan_key == "test":
-        amount = 10.00
-        days = 7
-        plan_name = "Test (7 days)"
-    elif plan_key == "monthly":
+    if plan_key == "monthly":
         amount = 190.00
         days = 30
         plan_name = "Monthly"
@@ -1222,7 +1214,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         days = 365
         plan_name = "Yearly"
     else:
-        await update.message.reply_text("❌ Invalid plan. Use: test, monthly, quarterly, yearly")
+        await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly")
         return
 
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
