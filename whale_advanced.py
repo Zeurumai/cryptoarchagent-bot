@@ -1,175 +1,215 @@
-# whale_advanced.py
-import requests
-import asyncio
+# whale_advanced.py - Datos reales de ballenas (BTC, ETH, BSC) con APIs gratuitas
 import os
-from dotenv import load_dotenv
-from groq import Groq
+import requests
+import logging
+from datetime import datetime
 
-load_dotenv()
+logger = logging.getLogger(__name__)
 
-# ==================== BITCOIN ====================
-def obtener_precio_btc_usd():
+# ==================== CONFIGURACIÓN ====================
+ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "")
+BSCSCAN_API_KEY = os.getenv("BSCSCAN_API_KEY", "")
+
+ETHERSCAN_API_URL = "https://api.etherscan.io/api"
+BSCSCAN_API_URL = "https://api.bscscan.com/api"
+BLOCKCHAIN_API_URL = "https://blockchain.info"
+
+# ==================== BITCOIN (Blockchain.com - sin API key) ====================
+def obtener_alertas_bitcoin(min_value_usd=50000, limit=3):
     try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", timeout=5)
-        if r.status_code == 200:
-            return r.json()["bitcoin"]["usd"]
-    except:
-        pass
-    return 60000
+        url = f"{BLOCKCHAIN_API_URL}/unconfirmed-transactions?format=json"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        txs = data.get("txs", [])
+        if not txs:
+            logger.warning("No se encontraron transacciones no confirmadas en Blockchain.com")
+            return []
 
-def obtener_ballenas_bitcoin(min_valor_usd=50000, limite=5):
-    url = "https://blockchain.info/unconfirmed-transactions?format=json"
-    try:
-        resp = requests.get(url, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            txs = data.get("txs", [])
-            ballenas = []
-            precio_btc = obtener_precio_btc_usd()
-            for tx in txs:
-                btc_amount = sum(out.get("value", 0) for out in tx.get("out", [])) / 1e8
-                valor_usd = btc_amount * precio_btc
-                if valor_usd >= min_valor_usd:
-                    ballenas.append({
-                        "symbol": "BTC",
-                        "amount": btc_amount,
-                        "amount_usd": valor_usd,
-                        "transaction_type": "transfer",
-                        "description": f"Movimiento de {btc_amount:.2f} BTC (${valor_usd:,.0f} USD)",
-                        "sentiment": "neutral"
-                    })
-                if len(ballenas) >= limite:
-                    break
-            return ballenas
+        btc_usd_price = _get_btc_usd_price()
+        if not btc_usd_price:
+            btc_usd_price = 60000
+
+        large_txs = []
+        for tx in txs:
+            total_btc = sum(out.get("value", 0) for out in tx.get("out", [])) / 100000000
+            value_usd = total_btc * btc_usd_price
+            if value_usd >= min_value_usd:
+                large_txs.append({
+                    "amount": total_btc,
+                    "amount_usd": value_usd,
+                    "symbol": "BTC",
+                    "transaction_type": "transfer",
+                    "description": f"Transacción BTC de {total_btc:.2f} BTC",
+                    "hash": tx.get("hash", ""),
+                    "timestamp": datetime.now().isoformat()
+                })
+
+        large_txs.sort(key=lambda x: x["amount_usd"], reverse=True)
+        return large_txs[:limit]
     except Exception as e:
-        print(f"Error Bitcoin: {e}")
-    return []
+        logger.error(f"Error en Blockchain.com BTC: {e}")
+        return []
 
-# ==================== ETHEREUM ====================
-def obtener_precio_eth_usd():
+def _get_btc_usd_price():
     try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd", timeout=5)
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+        r = requests.get(url, timeout=5)
         if r.status_code == 200:
-            return r.json()["ethereum"]["usd"]
+            return r.json().get("bitcoin", {}).get("usd")
     except:
         pass
-    return 1800
+    return None
 
-def obtener_ballenas_ethereum(min_valor_usd=10000, limite=5):
-    api_key = os.getenv("ETHERSCAN_API_KEY")
-    if not api_key:
-        print("⚠️ Falta ETHERSCAN_API_KEY en .env. Usando datos de ejemplo.")
-        return _ejemplo_eth()
+# ==================== ETHEREUM (Etherscan - con API key) ====================
+def obtener_alertas_ethereum(min_value_usd=10000, limit=3):
+    if not ETHERSCAN_API_KEY:
+        logger.warning("Sin API key de Etherscan, no se pueden obtener datos de ETH.")
+        return []
 
-    whale_address = "0x28C6c06298d514Db089934071355E5743bf21d60"
-    url = f"https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address={whale_address}&startblock=0&endblock=99999999&sort=desc&apikey={api_key}"
     try:
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
+        eth_usd_price = _get_eth_usd_price()
+        if not eth_usd_price:
+            eth_usd_price = 1800
+
+        # Usar la cuenta de la Fundación Ethereum como referencia
+        address = "0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae"
+        url = f"{ETHERSCAN_API_URL}?module=account&action=txlist&address={address}&sort=desc&apikey={ETHERSCAN_API_KEY}"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
         if data.get("status") != "1":
-            print("Etherscan error:", data.get("message"))
-            return _ejemplo_eth()
-        transacciones = data.get("result", [])
-        ballenas = []
-        precio_eth = obtener_precio_eth_usd()
-        for tx in transacciones[:200]:
-            value_wei = int(tx.get("value", "0"))
+            logger.warning(f"Etherscan no devolvió transacciones: {data.get('message')}")
+            return []
+
+        txs = data.get("result", [])
+        large_txs = []
+        for tx in txs[:50]:
+            value_wei = int(tx.get("value", 0))
             if value_wei == 0:
                 continue
-            eth_amount = value_wei / 1e18
-            valor_usd = eth_amount * precio_eth
-            if valor_usd >= min_valor_usd:
-                ballenas.append({
-                    "symbol": "ETH",
+            eth_amount = value_wei / 10**18
+            value_usd = eth_amount * eth_usd_price
+            if value_usd >= min_value_usd:
+                large_txs.append({
                     "amount": eth_amount,
-                    "amount_usd": valor_usd,
+                    "amount_usd": value_usd,
+                    "symbol": "ETH",
                     "transaction_type": "transfer",
-                    "description": f"Movimiento de {eth_amount:.2f} ETH (${valor_usd:,.0f} USD)",
-                    "sentiment": "neutral"
+                    "description": f"Transacción ETH de {eth_amount:.2f} ETH",
+                    "hash": tx.get("hash", ""),
+                    "from": tx.get("from", ""),
+                    "to": tx.get("to", ""),
+                    "timestamp": datetime.fromtimestamp(int(tx.get("timeStamp", 0))).isoformat()
                 })
-            if len(ballenas) >= limite:
-                break
-        return ballenas
+
+        large_txs.sort(key=lambda x: x["amount_usd"], reverse=True)
+        return large_txs[:limit]
     except Exception as e:
-        print(f"Error Ethereum: {e}")
-        return _ejemplo_eth()
+        logger.error(f"Error en Etherscan ETH: {e}")
+        return []
 
-def _ejemplo_eth():
-    return [
-        {
-            "symbol": "ETH",
-            "amount": 15234.5,
-            "amount_usd": 15234.5 * 1800,
-            "transaction_type": "deposit",
-            "description": "Ballena movió 15,234 ETH desde wallet fría a exchange (posible venta)",
-            "sentiment": "bearish"
-        },
-        {
-            "symbol": "ETH",
-            "amount": 8750.2,
-            "amount_usd": 8750.2 * 1800,
-            "transaction_type": "withdrawal",
-            "description": "Retiro de 8,750 ETH del exchange a wallet desconocida (acumulación)",
-            "sentiment": "bullish"
-        }
-    ]
-
-# ==================== IA CON GROQ ====================
-groq_client = None
-groq_api_key = os.getenv("GROQ_API_KEY")
-if groq_api_key:
-    groq_client = Groq(api_key=groq_api_key)
-
-def analizar_con_ia(moneda, cantidad, valor_usd, tipo, descripcion):
-    if not groq_client:
-        return None
-    prompt = f"""
-Eres un analista de criptomonedas. Analiza esta transacción de ballena:
-
-Moneda: {moneda}
-Cantidad: {cantidad:.2f} {moneda}
-Valor: ${valor_usd:,.2f} USD
-Tipo: {tipo}
-Descripción: {descripcion}
-
-Responde en español, en menos de 80 caracteres, con formato:
-[Sentimiento: ALCISTA/BAJISTA/NEUTRAL] - Breve razón.
-Ejemplo: "ALCISTA - Retiro de exchange sugiere acumulación."
-No des consejos de inversión.
-"""
+def _get_eth_usd_price():
     try:
-        response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=60
-        )
-        return response.choices[0].message.content.strip()
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            return r.json().get("ethereum", {}).get("usd")
+    except:
+        pass
+    return None
+
+# ==================== BINANCE SMART CHAIN (BSCScan - con API key) ====================
+def obtener_alertas_bsc(min_value_usd=5000, limit=3):
+    if not BSCSCAN_API_KEY:
+        logger.warning("Sin API key de BSCScan, no se pueden obtener datos de BSC.")
+        return []
+
+    try:
+        bnb_usd_price = _get_bnb_usd_price()
+        if not bnb_usd_price:
+            bnb_usd_price = 600
+
+        # Usar una cuenta conocida de BSC (PancakeSwap Router)
+        address = "0x10ED43C718714eb63d5aA57B78B54704E256024E"
+        url = f"{BSCSCAN_API_URL}?module=account&action=txlist&address={address}&sort=desc&apikey={BSCSCAN_API_KEY}"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get("status") != "1":
+            logger.warning(f"BSCScan no devolvió transacciones: {data.get('message')}")
+            return []
+
+        txs = data.get("result", [])
+        large_txs = []
+        for tx in txs[:50]:
+            value_wei = int(tx.get("value", 0))
+            if value_wei == 0:
+                continue
+            bnb_amount = value_wei / 10**18
+            value_usd = bnb_amount * bnb_usd_price
+            if value_usd >= min_value_usd:
+                large_txs.append({
+                    "amount": bnb_amount,
+                    "amount_usd": value_usd,
+                    "symbol": "BNB",
+                    "transaction_type": "transfer",
+                    "description": f"Transacción BNB de {bnb_amount:.2f} BNB",
+                    "hash": tx.get("hash", ""),
+                    "from": tx.get("from", ""),
+                    "to": tx.get("to", ""),
+                    "timestamp": datetime.fromtimestamp(int(tx.get("timeStamp", 0))).isoformat()
+                })
+
+        large_txs.sort(key=lambda x: x["amount_usd"], reverse=True)
+        return large_txs[:limit]
     except Exception as e:
-        print(f"Error IA: {e}")
+        logger.error(f"Error en BSCScan BSC: {e}")
+        return []
+
+def _get_bnb_usd_price():
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            return r.json().get("binancecoin", {}).get("usd")
+    except:
+        pass
+    return None
+
+# ==================== FUNCIONES DE ANÁLISIS (comunes) ====================
+def analizar_alerta(alert):
+    try:
+        amount = alert.get("amount", 0)
+        value_usd = alert.get("amount_usd", 0)
+        symbol = alert.get("symbol", "BTC")
+        tx_type = alert.get("transaction_type", "transfer")
+
+        emoji = "🐋" if tx_type == "transfer" else "🔄"
+        desc = f"{amount:.2f} {symbol}"
+
+        if value_usd > 10000000:
+            sentimiento = "🚨 MUY GRANDE"
+        elif value_usd > 1000000:
+            sentimiento = "🔴 GRANDE"
+        else:
+            sentimiento = "🟡 MEDIANO"
+
+        return emoji, desc, sentimiento, value_usd
+    except Exception as e:
+        logger.error(f"Error analizando alerta: {e}")
+        return "❓", "Error", "DESCONOCIDO", 0
+
+def analizar_con_ia(coin, amount, value_usd, tx_type, description):
+    try:
+        if value_usd > 10000000:
+            return f"🚨 Movimiento masivo de {coin}. Posible acumulación institucional."
+        elif value_usd > 1000000:
+            return f"📊 Transacción significativa de {coin}. Probable movimiento de ballena."
+        else:
+            return f"📈 Movimiento moderado de {coin}. Seguimiento recomendado."
+    except Exception as e:
+        logger.error(f"Error en análisis IA: {e}")
         return None
-
-# ==================== FUNCIONES ASÍNCRONAS PARA EL BOT ====================
-async def obtener_alertas_bitcoin(min_valor_usd=50000, limite=5):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, obtener_ballenas_bitcoin, min_valor_usd, limite)
-
-async def obtener_alertas_ethereum(min_valor_usd=10000, limite=5):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, obtener_ballenas_ethereum, min_valor_usd, limite)
-
-def analizar_alerta(alerta):
-    desc = alerta.get("description", "Movimiento detectado")
-    valor = alerta.get("amount_usd", 0)
-    sentiment = alerta.get("sentiment", "neutral")
-    if sentiment == "bullish":
-        emoji = "🟢"
-        texto = "Posible acumulación (investiga por tu cuenta)"
-    elif sentiment == "bearish":
-        emoji = "🔴"
-        texto = "Posible distribución (investiga por tu cuenta)"
-    else:
-        emoji = "⚪"
-        texto = "Neutral"
-    desc_corta = desc[:100] + "..." if len(desc) > 100 else desc
-    return emoji, desc_corta, texto, valor
