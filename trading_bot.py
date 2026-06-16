@@ -84,6 +84,8 @@ def calculate_plan_end(plan_key: str, start_date: datetime) -> datetime:
         return start_date + timedelta(days=90)
     elif plan_key == "yearly":
         return start_date + timedelta(days=365)
+    elif plan_key == "test":          # Plan de prueba 7 días
+        return start_date + timedelta(days=7)
     else:
         return start_date + timedelta(days=30)
 
@@ -172,7 +174,7 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Use /start to see the main menu.\n"
         "• Use /plans to view subscription plans.\n"
         "• Use /setemail your@email.com to set your payment email.\n"
-        "• Use /pay monthly (or quarterly, yearly) to activate Premium (one‑time payment).\n"
+        "• Use /pay monthly (or quarterly, yearly, test) to activate Premium (one‑time payment).\n"
         "• Use /whale to see whale movements (free).\n"
         "• Use /info BTC for detailed coin data.\n"
         "• Use /news for latest crypto news.\n"
@@ -359,7 +361,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "pay":
         await query.edit_message_text(
             "❌ To activate Premium, use the /pay command followed by the plan.\n"
-            "Example: /pay monthly\n\nTo see plans, use /plans"
+            "Example: /pay test\n\nTo see plans, use /plans"
         )
     elif data == "whale":
         await whale(update, context)
@@ -555,6 +557,7 @@ async def help_menu(query):
 
 *Real trading plans*
 - Free: no real trading (only testnet)
+- Test: 10 MXN / 7 days
 - Starter: deposit 50 USDT → 0.3% fee
 - Pro: deposit 100 USDT → 0.2% fee
 - Lifetime: deposit 0.01 BTC or 500 USDT → 0.2% fee + benefits
@@ -590,18 +593,20 @@ async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             message = "✨ *You are PREMIUM* ✨\n\nPlan: *Lifetime*\n✅ Lifetime access\n✅ Whale alerts"
     else:
-        message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans."   # ← línea corregida
+        message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans."
     await update.message.reply_text(message, parse_mode="Markdown")
 
 async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """
 📅 *Subscription plans* (prices in MXN, one‑time payment):
 
+• *Test*: $10 / 7 days
 • *Monthly*: $190 / 30 days
 • *Quarterly*: $540 / 90 days (save $30)
 • *Yearly*: $1900 / 365 days (save $380)
 
 To activate, type:
+/pay test
 /pay monthly
 /pay quarterly
 /pay yearly
@@ -707,6 +712,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not args:
         await update.message.reply_text(
             "ℹ️ *One‑time payment plans*\n\n"
+            "Use: `/pay test` (MXN 10, 7 days)\n"
             "Use: `/pay monthly` (MXN 190, 30 days)\n"
             "Use: `/pay quarterly` (MXN 540, 90 days)\n"
             "Use: `/pay yearly` (MXN 1900, 365 days)\n\n"
@@ -716,7 +722,11 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     plan_key = args[0].lower()
-    if plan_key == "monthly":
+    if plan_key == "test":
+        amount = 10.00
+        days = 7
+        plan_name = "Test (7 days)"
+    elif plan_key == "monthly":
         amount = 190.00
         days = 30
         plan_name = "Monthly"
@@ -729,7 +739,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         days = 365
         plan_name = "Yearly"
     else:
-        await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly")
+        await update.message.reply_text("❌ Invalid plan. Use: test, monthly, quarterly, yearly")
         return
 
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
