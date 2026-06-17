@@ -8,6 +8,7 @@ import schedule
 import threading
 import asyncio
 import feedparser
+import re
 from datetime import datetime, timedelta
 from flask import Flask, request
 from dotenv import load_dotenv
@@ -927,8 +928,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(output, parse_mode="Markdown")
 
-    # ========== AUTO TRADING ENGINE ==========
-    # Evaluar reglas automáticamente para este usuario
     chat_id = str(update.effective_chat.id)
     await evaluate_rules(chat_id, all_alerts, context)
 
@@ -1002,7 +1001,6 @@ async def evaluate_rules(chat_id, alerts, context):
             stop_loss = rule.get("stop_loss")
             take_profit = rule.get("take_profit")
 
-            # Evaluar condición (simple: buscar "whale_buy" o "whale_sell" en el texto)
             for alert in alerts:
                 desc = alert.get("description", "")
                 symbol = alert.get("symbol", "")
@@ -1019,7 +1017,6 @@ async def evaluate_rules(chat_id, alerts, context):
                     match = False
 
                 if match:
-                    # Ejecutar orden automática (simulación)
                     await context.bot.send_message(
                         chat_id=chat_id,
                         text=f"🤖 *Auto Trade Executed*\n\n"
@@ -1032,7 +1029,6 @@ async def evaluate_rules(chat_id, alerts, context):
                              f"*Simulation:* Order would be executed on testnet.",
                         parse_mode="Markdown"
                     )
-                    # Desactivar regla para evitar ejecuciones repetidas
                     supabase.table("rules").update({"active": False}).eq("id", rule["id"]).execute()
                     break
 
@@ -1170,21 +1166,26 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         await query.edit_message_text(f"❌ Error: {e}")
 
-# ==================== RULES (AUTO TRADING) ====================
+# ==================== RULES (AUTO TRADING) - MEJORADO ====================
 async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     try:
         rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
         if not rules.data:
             text = "🤖 *No auto trading rules configured.*\n\n"
-        else:
-            text = "🤖 *Your auto trading rules:*\n\n"
-            for r in rules.data:
-                status = "✅ Activa" if r["active"] else "❌ Pausada"
-                text += f"🔹 *ID {r['id']}*: {r['condition']}\n"
-                text += f"   Acción: {r['action']} | Monto: ${r['amount']} USDT\n"
-                text += f"   Stop-loss: {r['stop_loss']}% | Take-profit: {r['take_profit']}%\n"
-                text += f"   Estado: {status}\n\n"
+            text += "Use `/rule add` to create one.\n"
+            text += "Example: `/rule add \"whale_buy_btc > 100\" buy 50 5 10`"
+            await update.message.reply_text(text, parse_mode="Markdown")
+            return
+
+        text = "🤖 *Your auto trading rules:*\n\n"
+        for r in rules.data:
+            status = "✅ Activa" if r["active"] else "❌ Pausada"
+            text += f"🔹 *ID {r['id']}*: {r['condition']}\n"
+            text += f"   Acción: {r['action']} | Monto: ${r['amount']} USDT\n"
+            text += f"   Stop-loss: {r['stop_loss']}% | Take-profit: {r['take_profit']}%\n"
+            text += f"   Estado: {status}\n"
+            text += f"   📌 `/rule toggle {r['id']}` · `/rule delete {r['id']}`\n\n"
 
         text += "\n*Commands:*\n"
         text += "/rule add [condition] [action] [amount] [stop_loss] [take_profit]\n"
@@ -1210,6 +1211,7 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     subcommand = args[0].lower()
 
+    # ============ ADD ============
     if subcommand == "add":
         if len(args) < 6:
             await update.message.reply_text(
@@ -1218,11 +1220,26 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         try:
-            condition = args[1]
-            action = args[2].lower()
-            amount = float(args[3])
-            stop_loss = float(args[4])
-            take_profit = float(args[5])
+            # Extraer condición entre comillas (si las hay)
+            full_text = " ".join(args[1:])
+            match = re.search(r'"(.*?)"', full_text)
+            if match:
+                condition = match.group(1)
+                rest = full_text.replace(f'"{condition}"', '').strip().split()
+                if len(rest) < 4:
+                    await update.message.reply_text("❌ Missing parameters after condition.")
+                    return
+                action = rest[0].lower()
+                amount = float(rest[1])
+                stop_loss = float(rest[2])
+                take_profit = float(rest[3])
+            else:
+                # Sin comillas: usar args normales
+                condition = args[1]
+                action = args[2].lower()
+                amount = float(args[3])
+                stop_loss = float(args[4])
+                take_profit = float(args[5])
 
             if action not in ["buy", "sell"]:
                 await update.message.reply_text("❌ Action must be 'buy' or 'sell'")
@@ -1237,13 +1254,21 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "take_profit": take_profit,
                 "active": True
             }
-            supabase.table("rules").insert(data).execute()
-            await update.message.reply_text("✅ *Rule added successfully!*\n\nUse `/rule list` to see all rules.", parse_mode="Markdown")
+            result = supabase.table("rules").insert(data).execute()
+            rule_id = result.data[0]["id"] if result.data else "N/A"
+
+            await update.message.reply_text(
+                f"✅ *Rule added successfully!*\n"
+                f"📌 Rule ID: `{rule_id}`\n\n"
+                f"Use `/rule list` to see all rules, or `/rule toggle {rule_id}` to pause it.",
+                parse_mode="Markdown"
+            )
         except ValueError:
             await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
         except Exception as e:
             await update.message.reply_text(f"❌ Error adding rule: {e}")
 
+    # ============ LIST ============
     elif subcommand == "list":
         try:
             rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
@@ -1255,16 +1280,25 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 status = "✅" if r["active"] else "❌"
                 text += f"{status} *ID {r['id']}*: {r['condition']}\n"
                 text += f"   → {r['action'].upper()} ${r['amount']} USDT | SL: {r['stop_loss']}% | TP: {r['take_profit']}%\n"
+                text += f"   📌 `/rule toggle {r['id']}` · `/rule delete {r['id']}`\n\n"
             await update.message.reply_text(text, parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
 
+    # ============ TOGGLE ============
     elif subcommand == "toggle":
         if len(args) < 2:
             await update.message.reply_text("❌ Usage: `/rule toggle [id]`")
             return
         try:
             rule_id = int(args[1])
+            # Verificar si es el chat_id del usuario (error común)
+            if str(rule_id) == chat_id:
+                await update.message.reply_text(
+                    "❌ That's your Telegram ID, not a rule ID.\n"
+                    "Use `/rule list` to see your rule IDs."
+                )
+                return
             # Obtener estado actual
             rule = supabase.table("rules").select("*").eq("id", rule_id).eq("chat_id", chat_id).execute()
             if not rule.data:
@@ -1272,23 +1306,30 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             new_status = not rule.data[0]["active"]
             supabase.table("rules").update({"active": new_status}).eq("id", rule_id).execute()
-            status_text = "activada" if new_status else "pausada"
+            status_text = "activated" if new_status else "paused"
             await update.message.reply_text(f"✅ Rule {rule_id} {status_text}.")
         except ValueError:
-            await update.message.reply_text("❌ Invalid ID.")
+            await update.message.reply_text("❌ Invalid ID. Use `/rule list` to see your rule IDs.")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
 
+    # ============ DELETE ============
     elif subcommand == "delete":
         if len(args) < 2:
             await update.message.reply_text("❌ Usage: `/rule delete [id]`")
             return
         try:
             rule_id = int(args[1])
+            if str(rule_id) == chat_id:
+                await update.message.reply_text(
+                    "❌ That's your Telegram ID, not a rule ID.\n"
+                    "Use `/rule list` to see your rule IDs."
+                )
+                return
             supabase.table("rules").delete().eq("id", rule_id).eq("chat_id", chat_id).execute()
             await update.message.reply_text(f"✅ Rule {rule_id} deleted.")
         except ValueError:
-            await update.message.reply_text("❌ Invalid ID.")
+            await update.message.reply_text("❌ Invalid ID. Use `/rule list` to see your rule IDs.")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
 
