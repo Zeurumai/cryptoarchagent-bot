@@ -498,6 +498,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⚙️ Activate plan", callback_data="activate")],
         [InlineKeyboardButton("📋 My plan", callback_data="plan")],
         [InlineKeyboardButton("🤖 Auto trading", callback_data="rules")],
+        [InlineKeyboardButton("⚡ Snipe", callback_data="snipe")],
         [InlineKeyboardButton("❓ Help", callback_data="help")]
     ]
     await update.message.reply_text("🤖 *CryptoArch Agent*\nChoose an option:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -687,6 +688,8 @@ To activate, type:
         await copy_whale_callback(update, context)
     elif data == "rules":
         await rules_menu(update, context)
+    elif data == "snipe":
+        await snipe_settings_menu(update, context)
     elif data == "menu":
         await start(update, context)
     else:
@@ -867,6 +870,7 @@ async def help_menu(query):
 /plan - Show your current level
 /copy - Configure copy trading (e.g. /copy 20 1.5 follow on)
 /rule - Auto trading rules (e.g. /rule add "whale_buy_btc > 100" buy 50 5 10)
+/snipe - Configure sniping (e.g. /snipe set 50 5 ethereum on)
 
 *Benefits by level:*
 🧭 Explorer (0.5% comisión) - 14 days free
@@ -878,7 +882,7 @@ async def help_menu(query):
 """
     await query.edit_message_text(message, parse_mode="Markdown")
 
-# ==================== WHALE FUNCTIONS (con Copy Trading + Auto Rules) ====================
+# ==================== WHALE FUNCTIONS ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
     btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
@@ -985,28 +989,22 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await evaluate_rules(chat_id, all_alerts, context)
 
 async def evaluate_rules(chat_id, alerts, context):
-    """Evalúa reglas automáticas y ejecuta órdenes si coinciden"""
     if not supabase:
         return
-
     try:
         rules = supabase.table("rules").select("*").eq("chat_id", chat_id).eq("active", True).execute()
         if not rules.data:
             return
-
         for rule in rules.data:
             condition = rule["condition"]
             action = rule["action"]
             amount = rule["amount"]
             stop_loss = rule.get("stop_loss")
             take_profit = rule.get("take_profit")
-
             for alert in alerts:
                 desc = alert.get("description", "")
                 symbol = alert.get("symbol", "")
                 tx_type = alert.get("transaction_type", "")
-
-                # Detectar si coincide con la condición
                 if "whale_buy" in condition.lower() and "buy" in tx_type.lower():
                     match = True
                 elif "whale_sell" in condition.lower() and "sell" in tx_type.lower():
@@ -1015,7 +1013,6 @@ async def evaluate_rules(chat_id, alerts, context):
                     match = True
                 else:
                     match = False
-
                 if match:
                     await context.bot.send_message(
                         chat_id=chat_id,
@@ -1031,7 +1028,6 @@ async def evaluate_rules(chat_id, alerts, context):
                     )
                     supabase.table("rules").update({"active": False}).eq("id", rule["id"]).execute()
                     break
-
     except Exception as e:
         logger.error(f"Error evaluating rules: {e}")
 
@@ -1039,11 +1035,9 @@ async def evaluate_rules(chat_id, alerts, context):
 async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
-
     if not supabase:
         await update.message.reply_text("❌ Base de datos no disponible.")
         return
-
     if not args:
         try:
             settings = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
@@ -1070,25 +1064,20 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await update.message.reply_text(f"❌ Error loading settings: {e}")
         return
-
     try:
         if len(args) < 4:
             await update.message.reply_text("❌ Usage: `/copy [amount] [slippage] [mode] [on/off]`")
             return
-
         max_amount = float(args[0])
         slippage = float(args[1])
         mode = args[2].lower()
         active = args[3].lower() == "on"
-
         if mode not in ["follow", "invert"]:
             await update.message.reply_text("❌ Mode must be 'follow' or 'invert'")
             return
-
         if max_amount <= 0 or slippage < 0:
             await update.message.reply_text("❌ Amount must be > 0 and slippage >= 0")
             return
-
         data = {
             "chat_id": chat_id,
             "max_amount": max_amount,
@@ -1098,7 +1087,6 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "updated_at": datetime.now().isoformat()
         }
         supabase.table("copy_settings").upsert(data).execute()
-
         await update.message.reply_text(
             f"✅ *Copy settings saved!*\n\n"
             f"💰 Max amount: {max_amount} USDT\n"
@@ -1116,23 +1104,19 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     chat_id = str(update.effective_chat.id)
-
     alerts = context.user_data.get("last_whale_alerts", [])
     if not alerts:
         await query.edit_message_text("⚠️ No whale alert available to copy.")
         return
-
     alert = alerts[0]
     symbol = alert.get("symbol", "BTC")
     direction = alert.get("transaction_type", "transfer")
-
     if direction in ["transfer", "exchange_out"]:
         trade_direction = "sell"
         emoji = "🔴"
     else:
         trade_direction = "buy"
         emoji = "🟢"
-
     try:
         settings = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
         if not settings.data or not settings.data[0].get("active", False):
@@ -1143,16 +1127,13 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 parse_mode="Markdown"
             )
             return
-
         s = settings.data[0]
         max_amount = s["max_amount"]
         slippage = s["slippage"] / 100.0
         mode = s["mode"]
-
         if mode == "invert":
             trade_direction = "buy" if trade_direction == "sell" else "sell"
             emoji = "🔄" + emoji
-
         await query.edit_message_text(
             f"🐋 *Copy Trade Execution*\n\n"
             f"{emoji} Direction: *{trade_direction.upper()}*\n"
@@ -1166,7 +1147,7 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         await query.edit_message_text(f"❌ Error: {e}")
 
-# ==================== RULES (AUTO TRADING) - MEJORADO ====================
+# ==================== RULES (AUTO TRADING) ====================
 async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     try:
@@ -1177,7 +1158,6 @@ async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += "Example: `/rule add \"whale_buy_btc > 100\" buy 50 5 10`"
             await update.message.reply_text(text, parse_mode="Markdown")
             return
-
         text = "🤖 *Your auto trading rules:*\n\n"
         for r in rules.data:
             status = "✅ Activa" if r["active"] else "❌ Pausada"
@@ -1186,7 +1166,6 @@ async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"   Stop-loss: {r['stop_loss']}% | Take-profit: {r['take_profit']}%\n"
             text += f"   Estado: {status}\n"
             text += f"   📌 `/rule toggle {r['id']}` · `/rule delete {r['id']}`\n\n"
-
         text += "\n*Commands:*\n"
         text += "/rule add [condition] [action] [amount] [stop_loss] [take_profit]\n"
         text += "Example: `/rule add \"whale_buy_btc > 100\" buy 50 5 10`\n"
@@ -1200,18 +1179,13 @@ async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
-
     if not supabase:
         await update.message.reply_text("❌ Base de datos no disponible.")
         return
-
     if len(args) == 0:
         await update.message.reply_text("❌ Usage: /rule [add|list|toggle|delete] ...")
         return
-
     subcommand = args[0].lower()
-
-    # ============ ADD ============
     if subcommand == "add":
         if len(args) < 6:
             await update.message.reply_text(
@@ -1220,7 +1194,6 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         try:
-            # Extraer condición entre comillas (si las hay)
             full_text = " ".join(args[1:])
             match = re.search(r'"(.*?)"', full_text)
             if match:
@@ -1234,17 +1207,14 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 stop_loss = float(rest[2])
                 take_profit = float(rest[3])
             else:
-                # Sin comillas: usar args normales
                 condition = args[1]
                 action = args[2].lower()
                 amount = float(args[3])
                 stop_loss = float(args[4])
                 take_profit = float(args[5])
-
             if action not in ["buy", "sell"]:
                 await update.message.reply_text("❌ Action must be 'buy' or 'sell'")
                 return
-
             data = {
                 "chat_id": chat_id,
                 "condition": condition,
@@ -1256,7 +1226,6 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             result = supabase.table("rules").insert(data).execute()
             rule_id = result.data[0]["id"] if result.data else "N/A"
-
             await update.message.reply_text(
                 f"✅ *Rule added successfully!*\n"
                 f"📌 Rule ID: `{rule_id}`\n\n"
@@ -1267,8 +1236,6 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
         except Exception as e:
             await update.message.reply_text(f"❌ Error adding rule: {e}")
-
-    # ============ LIST ============
     elif subcommand == "list":
         try:
             rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
@@ -1284,22 +1251,18 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text, parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
-
-    # ============ TOGGLE ============
     elif subcommand == "toggle":
         if len(args) < 2:
             await update.message.reply_text("❌ Usage: `/rule toggle [id]`")
             return
         try:
             rule_id = int(args[1])
-            # Verificar si es el chat_id del usuario (error común)
             if str(rule_id) == chat_id:
                 await update.message.reply_text(
                     "❌ That's your Telegram ID, not a rule ID.\n"
                     "Use `/rule list` to see your rule IDs."
                 )
                 return
-            # Obtener estado actual
             rule = supabase.table("rules").select("*").eq("id", rule_id).eq("chat_id", chat_id).execute()
             if not rule.data:
                 await update.message.reply_text("❌ Rule not found.")
@@ -1312,8 +1275,6 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Invalid ID. Use `/rule list` to see your rule IDs.")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
-
-    # ============ DELETE ============
     elif subcommand == "delete":
         if len(args) < 2:
             await update.message.reply_text("❌ Usage: `/rule delete [id]`")
@@ -1332,9 +1293,98 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Invalid ID. Use `/rule list` to see your rule IDs.")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
-
     else:
         await update.message.reply_text("❌ Unknown subcommand. Use: add, list, toggle, delete")
+
+# ==================== SNIPE (FASE 3) ====================
+async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    try:
+        settings = supabase.table("snipe_settings").select("*").eq("chat_id", chat_id).execute()
+        if not settings.data:
+            text = "⚡ *Snipe settings*\n\nNo configuration found.\n\n"
+            text += "Use: `/snipe set [amount] [slippage] [chain] [on/off]`\n"
+            text += "Example: `/snipe set 50 5 ethereum on`\n"
+            text += "Chains: `ethereum` or `bsc`"
+            await update.message.reply_text(text, parse_mode="Markdown")
+            return
+        s = settings.data[0]
+        status = "✅ Active" if s["active"] else "❌ Paused"
+        text = (
+            f"⚡ *Snipe Settings*\n\n"
+            f"💰 Max amount: ${s['max_amount']} USDT\n"
+            f"📉 Slippage: {s['slippage']}%\n"
+            f"⛓️ Chain: {s['chain']}\n"
+            f"🔘 Status: {status}\n\n"
+            f"Commands:\n"
+            f"`/snipe set [amount] [slippage] [chain] [on/off]`\n"
+            f"`/snipe on` - Activate\n"
+            f"`/snipe off` - Pause"
+        )
+        await update.message.reply_text(text, parse_mode="Markdown")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
+async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    args = context.args
+    if not supabase:
+        await update.message.reply_text("❌ Base de datos no disponible.")
+        return
+    if len(args) == 0:
+        await snipe_settings_menu(update, context)
+        return
+    subcommand = args[0].lower()
+    if subcommand == "set":
+        if len(args) < 5:
+            await update.message.reply_text(
+                "❌ Usage: `/snipe set [amount] [slippage] [chain] [on/off]`\n"
+                "Example: `/snipe set 50 5 ethereum on`"
+            )
+            return
+        try:
+            amount = float(args[1])
+            slippage = float(args[2])
+            chain = args[3].lower()
+            active = args[4].lower() == "on"
+            if chain not in ["ethereum", "bsc"]:
+                await update.message.reply_text("❌ Chain must be 'ethereum' or 'bsc'")
+                return
+            data = {
+                "chat_id": chat_id,
+                "max_amount": amount,
+                "slippage": slippage,
+                "chain": chain,
+                "active": active,
+                "updated_at": datetime.now().isoformat()
+            }
+            supabase.table("snipe_settings").upsert(data).execute()
+            await update.message.reply_text(
+                f"✅ *Snipe settings saved!*\n\n"
+                f"💰 Max amount: ${amount} USDT\n"
+                f"📉 Slippage: {slippage}%\n"
+                f"⛓️ Chain: {chain}\n"
+                f"🔘 Status: {'✅ Active' if active else '❌ Paused'}",
+                parse_mode="Markdown"
+            )
+        except ValueError:
+            await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {e}")
+    elif subcommand == "on":
+        try:
+            supabase.table("snipe_settings").update({"active": True}).eq("chat_id", chat_id).execute()
+            await update.message.reply_text("✅ Snipe activated.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {e}")
+    elif subcommand == "off":
+        try:
+            supabase.table("snipe_settings").update({"active": False}).eq("chat_id", chat_id).execute()
+            await update.message.reply_text("✅ Snipe paused.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {e}")
+    else:
+        await update.message.reply_text("❌ Unknown subcommand. Use: set, on, off")
 
 # ==================== COMANDOS ====================
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1473,7 +1523,6 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     args = context.args
-
     user_email = get_user_email(chat_id)
     if not user_email:
         await update.message.reply_text(
@@ -1482,7 +1531,6 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
-
     if not args:
         await update.message.reply_text(
             "ℹ️ *One‑time payment plans*\n\n"
@@ -1493,7 +1541,6 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
-
     plan_key = args[0].lower()
     if plan_key == "monthly":
         amount = 190.00
@@ -1510,7 +1557,6 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly")
         return
-
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
     preference_data = {
         "items": [{
@@ -1528,7 +1574,6 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "auto_return": "approved",
         "notification_url": MP_WEBHOOK_URL
     }
-
     try:
         response = sdk.preference().create(preference_data)
         logger.info(f"MercadoPago response: {response}")
@@ -1562,7 +1607,6 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
-
     args = context.args
     if len(args) != 2:
         await update.message.reply_text("⚠️ Usage: `/buy [amount] [symbol]`\nExample: `/buy 0.001 BTCUSDT`", parse_mode="Markdown")
@@ -1601,7 +1645,6 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
-
     args = context.args
     if len(args) != 2:
         await update.message.reply_text("⚠️ Usage: `/sell [amount] [symbol]`\nExample: `/sell 0.001 BTCUSDT`", parse_mode="Markdown")
@@ -1860,6 +1903,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("force_premium", force_premium))
     app.add_handler(CommandHandler("copy", copy))
     app.add_handler(CommandHandler("rule", rule_command))
+    app.add_handler(CommandHandler("snipe", snipe_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 
