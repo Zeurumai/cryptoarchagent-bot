@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CryptoArch Agent - Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        body { background: #0A0C12; color: #e5e7eb; }
+        .glass-card {
+            background: rgba(15, 17, 25, 0.75);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            transition: all 0.2s;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(59,130,246,0.4);
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-active { background: rgba(16,185,129,0.2); color: #6ee7b7; }
+        .status-inactive { background: rgba(239,68,68,0.2); color: #fca5a5; }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-8">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-xl flex items-center justify-center text-white font-bold">CA</div>
+                <h1 class="text-2xl font-bold">CryptoArch Agent</h1>
+            </div>
+            <div class="text-sm text-gray-400">
+                <i class="fas fa-user-circle mr-2"></i>
+                <span id="chat-id-display">Cargando...</span>
+            </div>
+        </div>
+
+        <!-- Grid principal -->
+        <div class="grid md:grid-cols-3 gap-6">
+            <!-- Tarjeta 1: Estadísticas -->
+            <div class="glass-card rounded-2xl p-6 md:col-span-2">
+                <h2 class="text-xl font-bold mb-4">📊 Estadísticas</h2>
+                <div class="grid grid-cols-3 gap-4">
+                    <div>
+                        <p class="text-gray-400 text-sm">Operaciones</p>
+                        <p class="text-2xl font-bold text-blue-400" id="total-trades">0</p>
+                    </div>
+                    <div>
+                        <p class="text-gray-400 text-sm">Win Rate</p>
+                        <p class="text-2xl font-bold text-emerald-400" id="win-rate">0%</p>
+                    </div>
+                    <div>
+                        <p class="text-gray-400 text-sm">PnL</p>
+                        <p class="text-2xl font-bold text-yellow-400" id="pnl">$0.00</p>
+                    </div>
+                </div>
+                <div class="mt-4 p-3 bg-gray-800/50 rounded-xl">
+                    <p class="text-sm text-gray-400">🏆 Modo Legendario</p>
+                    <p class="text-lg font-bold text-purple-400" id="legendary-mode">🔒 Bloqueado</p>
+                </div>
+            </div>
+
+            <!-- Tarjeta 2: Configuración rápida -->
+            <div class="glass-card rounded-2xl p-6">
+                <h2 class="text-xl font-bold mb-4">⚡ Control rápido</h2>
+                <div class="space-y-4">
+                    <div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm">🎯 Sniper X</span>
+                            <button id="sniper-toggle" class="status-badge status-inactive">Inactivo</button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Ejecución quirúrgica</p>
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm">🐋 Copy Trading</span>
+                            <button id="copy-toggle" class="status-badge status-inactive">Inactivo</button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Copiar ballenas automáticamente</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Historial de operaciones -->
+        <div class="glass-card rounded-2xl p-6 mt-6">
+            <h2 class="text-xl font-bold mb-4">📋 Historial de operaciones</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-gray-400 border-b border-gray-700">
+                            <th class="text-left py-2">Fecha</th>
+                            <th class="text-left py-2">Activo</th>
+                            <th class="text-left py-2">Tipo</th>
+                            <th class="text-left py-2">Cantidad</th>
+                            <th class="text-left py-2">Precio</th>
+                            <th class="text-left py-2">Resultado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trades-table">
+                        <tr><td colspan="6" class="text-center py-4 text-gray-400">No hay operaciones registradas</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatId = "8355456581";  // ID fijo para pruebas (tu ID)
+
+        // ==================== CARGAR DATOS ====================
+        async function loadStats() {
+            try {
+                const res = await fetch(`/api/stats/${chatId}`);
+                const data = await res.json();
+                document.getElementById('total-trades').textContent = data.total_trades || 0;
+                document.getElementById('win-rate').textContent = (data.win_rate || 0) + '%';
+                document.getElementById('pnl').textContent = '$' + (data.pnl || 0).toFixed(2);
+                document.getElementById('legendary-mode').textContent = data.legendary_mode ? '👑 Activado' : '🔒 Bloqueado';
+                document.getElementById('chat-id-display').textContent = chatId;
+            } catch(e) {
+                console.error('Error loading stats:', e);
+            }
+        }
+
+        async function loadSettings() {
+            try {
+                const res = await fetch(`/api/settings/${chatId}`);
+                const data = await res.json();
+                
+                // Actualizar Sniper X
+                const sniperBtn = document.getElementById('sniper-toggle');
+                if (data.sniper && data.sniper.active) {
+                    sniperBtn.textContent = 'Activo';
+                    sniperBtn.className = 'status-badge status-active';
+                } else {
+                    sniperBtn.textContent = 'Inactivo';
+                    sniperBtn.className = 'status-badge status-inactive';
+                }
+
+                // Actualizar Copy Trading
+                const copyBtn = document.getElementById('copy-toggle');
+                if (data.copy && data.copy.active) {
+                    copyBtn.textContent = 'Activo';
+                    copyBtn.className = 'status-badge status-active';
+                } else {
+                    copyBtn.textContent = 'Inactivo';
+                    copyBtn.className = 'status-badge status-inactive';
+                }
+            } catch(e) {
+                console.error('Error loading settings:', e);
+            }
+        }
+
+        // ==================== TOGGLES ====================
+        document.getElementById('sniper-toggle').addEventListener('click', async function() {
+            const isActive = this.textContent === 'Activo';
+            const newValue = !isActive;
+            
+            try {
+                const res = await fetch('/api/update_sniper', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: chatId,
+                        field: 'active',
+                        value: newValue
+                    })
+                });
+                if (res.ok) {
+                    this.textContent = newValue ? 'Activo' : 'Inactivo';
+                    this.className = newValue ? 'status-badge status-active' : 'status-badge status-inactive';
+                }
+            } catch(e) {
+                console.error('Error toggling sniper:', e);
+            }
+        });
+
+        document.getElementById('copy-toggle').addEventListener('click', async function() {
+            const isActive = this.textContent === 'Activo';
+            const newValue = !isActive;
+            
+            try {
+                const res = await fetch('/api/update_copy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: chatId,
+                        field: 'active',
+                        value: newValue
+                    })
+                });
+                if (res.ok) {
+                    this.textContent = newValue ? 'Activo' : 'Inactivo';
+                    this.className = newValue ? 'status-badge status-active' : 'status-badge status-inactive';
+                }
+            } catch(e) {
+                console.error('Error toggling copy:', e);
+            }
+        });
+
+        // ==================== INICIALIZAR ====================
+        loadStats();
+        loadSettings();
+    </script>
+</body>
+</html>
