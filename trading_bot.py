@@ -15,7 +15,15 @@ from dotenv import load_dotenv
 import mercadopago
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-from whale_advanced import obtener_alertas_bitcoin, obtener_alertas_ethereum, analizar_alerta, analizar_con_ia
+from whale_advanced import (
+    obtener_alertas_bitcoin,
+    obtener_alertas_ethereum,
+    obtener_alertas_solana,
+    obtener_alertas_polygon,
+    obtener_alertas_arbitrum,
+    analizar_alerta,
+    analizar_con_ia
+)
 from trading_engine import TradingEngine
 from supabase import create_client, Client
 
@@ -882,18 +890,23 @@ async def help_menu(query):
 """
     await query.edit_message_text(message, parse_mode="Markdown")
 
-# ==================== WHALE FUNCTIONS ====================
+# ==================== WHALE FUNCTIONS (MULTI-CHAIN) ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
+
     btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
     eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
+    sol_alerts = await asyncio.to_thread(obtener_alertas_solana, 10000, 3)
+    matic_alerts = await asyncio.to_thread(obtener_alertas_polygon, 5000, 3)
+    arb_alerts = await asyncio.to_thread(obtener_alertas_arbitrum, 5000, 3)
 
     output = "📊 *RECENT WHALE MOVEMENTS*\n"
     output += "_The following data is informational only. Not investment advice._\n\n"
 
-    all_alerts = btc_alerts + eth_alerts
+    all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
     context.user_data["last_whale_alerts"] = all_alerts
 
+    # Bitcoin
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
         for idx, alert in enumerate(btc_alerts):
@@ -909,6 +922,7 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
 
+    # Ethereum
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
         for idx, alert in enumerate(eth_alerts, start=len(btc_alerts)):
@@ -923,6 +937,54 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             output += "\n"
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
+
+    # Solana
+    if sol_alerts:
+        output += "◎ *Solana (SOL)*\n"
+        for idx, alert in enumerate(sol_alerts, start=len(btc_alerts) + len(eth_alerts)):
+            emoji, desc, sentiment, value = analizar_alerta(alert)
+            output += f"{emoji} `{desc}`\n"
+            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+            ia_analysis = analizar_con_ia(alert)
+            if ia_analysis:
+                output += f"   🧠 *AI:* {ia_analysis}\n"
+            context.user_data[f"whale_alert_{idx}"] = alert
+            output += f"   🆔 `whale_{idx}`\n"
+            output += "\n"
+    else:
+        output += "◎ *Solana (SOL)*\nNo significant movements recently.\n\n"
+
+    # Polygon (MATIC)
+    if matic_alerts:
+        output += "🟣 *Polygon (MATIC)*\n"
+        for idx, alert in enumerate(matic_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts)):
+            emoji, desc, sentiment, value = analizar_alerta(alert)
+            output += f"{emoji} `{desc}`\n"
+            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+            ia_analysis = analizar_con_ia(alert)
+            if ia_analysis:
+                output += f"   🧠 *AI:* {ia_analysis}\n"
+            context.user_data[f"whale_alert_{idx}"] = alert
+            output += f"   🆔 `whale_{idx}`\n"
+            output += "\n"
+    else:
+        output += "🟣 *Polygon (MATIC)*\nNo significant movements recently.\n\n"
+
+    # Arbitrum
+    if arb_alerts:
+        output += "🔵 *Arbitrum (ARB)*\n"
+        for idx, alert in enumerate(arb_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts) + len(matic_alerts)):
+            emoji, desc, sentiment, value = analizar_alerta(alert)
+            output += f"{emoji} `{desc}`\n"
+            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+            ia_analysis = analizar_con_ia(alert)
+            if ia_analysis:
+                output += f"   🧠 *AI:* {ia_analysis}\n"
+            context.user_data[f"whale_alert_{idx}"] = alert
+            output += f"   🆔 `whale_{idx}`\n"
+            output += "\n"
+    else:
+        output += "🔵 *Arbitrum (ARB)*\nNo significant movements recently.\n\n"
 
     output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
 
@@ -938,15 +1000,20 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.edit_message_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
+
     btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
     eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
+    sol_alerts = await asyncio.to_thread(obtener_alertas_solana, 10000, 3)
+    matic_alerts = await asyncio.to_thread(obtener_alertas_polygon, 5000, 3)
+    arb_alerts = await asyncio.to_thread(obtener_alertas_arbitrum, 5000, 3)
 
     output = "📊 *RECENT WHALE MOVEMENTS*\n"
     output += "_The following data is informational only. Not investment advice._\n\n"
 
-    all_alerts = btc_alerts + eth_alerts
+    all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
     context.user_data["last_whale_alerts"] = all_alerts
 
+    # Bitcoin
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
         for idx, alert in enumerate(btc_alerts):
@@ -962,6 +1029,7 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
 
+    # Ethereum
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
         for idx, alert in enumerate(eth_alerts, start=len(btc_alerts)):
@@ -976,6 +1044,54 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             output += "\n"
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
+
+    # Solana
+    if sol_alerts:
+        output += "◎ *Solana (SOL)*\n"
+        for idx, alert in enumerate(sol_alerts, start=len(btc_alerts) + len(eth_alerts)):
+            emoji, desc, sentiment, value = analizar_alerta(alert)
+            output += f"{emoji} `{desc}`\n"
+            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+            ia_analysis = analizar_con_ia(alert)
+            if ia_analysis:
+                output += f"   🧠 *AI:* {ia_analysis}\n"
+            context.user_data[f"whale_alert_{idx}"] = alert
+            output += f"   🆔 `whale_{idx}`\n"
+            output += "\n"
+    else:
+        output += "◎ *Solana (SOL)*\nNo significant movements recently.\n\n"
+
+    # Polygon (MATIC)
+    if matic_alerts:
+        output += "🟣 *Polygon (MATIC)*\n"
+        for idx, alert in enumerate(matic_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts)):
+            emoji, desc, sentiment, value = analizar_alerta(alert)
+            output += f"{emoji} `{desc}`\n"
+            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+            ia_analysis = analizar_con_ia(alert)
+            if ia_analysis:
+                output += f"   🧠 *AI:* {ia_analysis}\n"
+            context.user_data[f"whale_alert_{idx}"] = alert
+            output += f"   🆔 `whale_{idx}`\n"
+            output += "\n"
+    else:
+        output += "🟣 *Polygon (MATIC)*\nNo significant movements recently.\n\n"
+
+    # Arbitrum
+    if arb_alerts:
+        output += "🔵 *Arbitrum (ARB)*\n"
+        for idx, alert in enumerate(arb_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts) + len(matic_alerts)):
+            emoji, desc, sentiment, value = analizar_alerta(alert)
+            output += f"{emoji} `{desc}`\n"
+            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+            ia_analysis = analizar_con_ia(alert)
+            if ia_analysis:
+                output += f"   🧠 *AI:* {ia_analysis}\n"
+            context.user_data[f"whale_alert_{idx}"] = alert
+            output += f"   🆔 `whale_{idx}`\n"
+            output += "\n"
+    else:
+        output += "🔵 *Arbitrum (ARB)*\nNo significant movements recently.\n\n"
 
     output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
 
