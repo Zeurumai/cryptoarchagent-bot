@@ -22,7 +22,8 @@ from whale_advanced import (
     obtener_alertas_polygon,
     obtener_alertas_arbitrum,
     analizar_alerta,
-    analizar_con_ia
+    analizar_con_ia,
+    predecir_movimiento_ballena
 )
 from trading_engine import TradingEngine
 from supabase import create_client, Client
@@ -919,6 +920,8 @@ async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
 | **Multi-Chain** | 14 | 4 | 1 | **5 (growing)** |
 | **Free Trial** | ❌ | ❌ | ❌ | ✅ **14 days** |
 | **Anti-MEV** | ✅ | ✅ | ✅ | ❌ (coming soon) |
+| **Whale Radar** | ❌ | ❌ | ❌ | ✅ **Predictive AI** |
+| **Panic Shield** | ❌ | ❌ | ❌ | ✅ **Emotional protection** |
 
 💀 *The math is simple:* They charge 1%. We charge 0.2%.  
 That's **5x cheaper**. For a trader with $10,000 volume per month:
@@ -963,6 +966,11 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            
+            # Radar de Ballenas
+            radar = predecir_movimiento_ballena(alert)
+            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
+            
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
@@ -979,6 +987,11 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            
+            # Radar de Ballenas
+            radar = predecir_movimiento_ballena(alert)
+            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
+            
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
@@ -995,6 +1008,11 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            
+            # Radar de Ballenas
+            radar = predecir_movimiento_ballena(alert)
+            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
+            
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
@@ -1011,6 +1029,11 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            
+            # Radar de Ballenas
+            radar = predecir_movimiento_ballena(alert)
+            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
+            
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
@@ -1027,6 +1050,11 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            
+            # Radar de Ballenas
+            radar = predecir_movimiento_ballena(alert)
+            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
+            
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
@@ -1074,6 +1102,8 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            radar = predecir_movimiento_ballena(alert)
+            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
@@ -1090,6 +1120,8 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            radar = predecir_movimiento_ballena(alert)
+            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
@@ -1106,6 +1138,8 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            radar = predecir_movimiento_ballena(alert)
+            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
@@ -1122,6 +1156,8 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            radar = predecir_movimiento_ballena(alert)
+            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
@@ -1138,6 +1174,8 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
+            radar = predecir_movimiento_ballena(alert)
+            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
@@ -1203,39 +1241,31 @@ async def evaluate_rules(chat_id, alerts, context):
         logger.error(f"Error evaluating rules: {e}")
 
 async def execute_sniper(chat_id, alerts, context):
-    """Ejecuta Sniper X si está activo"""
     if not supabase or not alerts:
         return
-
     try:
         settings = supabase.table("sniper_settings").select("*").eq("chat_id", chat_id).eq("active", True).execute()
         if not settings.data:
             return
-
         s = settings.data[0]
-        # Tomar la primera alerta
         alert = alerts[0]
         symbol = alert.get("symbol", "BTC")
         direction = alert.get("transaction_type", "transfer")
-
         if direction in ["transfer", "exchange_out"]:
             trade_direction = "sell"
             emoji = "🔴"
         else:
             trade_direction = "buy"
             emoji = "🟢"
-
-        # Ajustar según modo
         if s["mode"] == "aggressive":
             slippage = s["slippage"] + 1.0
             speed = "⚡ Ultra-fast"
         elif s["mode"] == "moderate":
             slippage = s["slippage"]
             speed = "⚖️ Balanced"
-        else:  # conservative
+        else:
             slippage = max(0.5, s["slippage"] - 1.0)
             speed = "🛡️ Safe"
-
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"🎯 *Sniper X Execution*\n\n"
@@ -1249,10 +1279,7 @@ async def execute_sniper(chat_id, alerts, context):
                  f"⚠️ *Real execution coming soon.*",
             parse_mode="Markdown"
         )
-
-        # Desactivar Sniper X después de ejecutar
         supabase.table("sniper_settings").update({"active": False}).eq("chat_id", chat_id).execute()
-
     except Exception as e:
         logger.error(f"Error executing sniper for {chat_id}: {e}")
 
@@ -1620,7 +1647,6 @@ async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Base de datos no disponible.")
         return
 
-    # Mostrar configuración actual
     if not args:
         try:
             settings = supabase.table("sniper_settings").select("*").eq("chat_id", chat_id).execute()
@@ -1656,7 +1682,6 @@ async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Error loading settings: {e}")
         return
 
-    # Procesar configuración
     try:
         if len(args) < 6:
             await update.message.reply_text("❌ Usage: `/sniper set [amount] [slippage] [mode] [anti_mev] [on/off]`")
@@ -1949,6 +1974,7 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
+# ==================== SELL CON ESCUDO ANTI-PÁNICO ====================
 async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     level = get_user_level(chat_id)
@@ -1961,6 +1987,7 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
+
     args = context.args
     if len(args) != 2:
         await update.message.reply_text("⚠️ Usage: `/sell [amount] [symbol]`\nExample: `/sell 0.001 BTCUSDT`", parse_mode="Markdown")
@@ -1974,6 +2001,26 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid amount.")
         return
     try:
+        # Escudo Anti-Pánico
+        try:
+            fg_data = requests.get('https://api.alternative.me/fng/?limit=1').json()
+            fear_value = int(fg_data['data'][0]['value'])
+            if fear_value < 25:
+                warning = (
+                    "🛡️ *Panic Shield Activated* 🛡️\n\n"
+                    "⚠️ You are about to sell during extreme fear.\n"
+                    "📊 Historical data shows that selling during extreme fear often leads to regret.\n"
+                    "🐋 Whales are currently accumulating.\n\n"
+                    "Are you sure? Type *YES* to confirm, or *NO* to cancel."
+                )
+                await update.message.reply_text(warning, parse_mode="Markdown")
+                context.user_data["pending_sell_confirm"] = True
+                context.user_data["pending_sell_order"] = {"symbol": symbol, "amount": amount}
+                return
+        except Exception as e:
+            logger.error(f"Error in Panic Shield: {e}")
+
+        # Si no hay pánico, proceder con la venta normal
         engine = TradingEngine(testnet=True)
         base_asset = symbol.replace("USDT", "")
         balance_asset = engine.get_balance(base_asset)
@@ -1990,6 +2037,33 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
+    
+    # Verificar si es confirmación del Escudo Anti-Pánico
+    if context.user_data.get("pending_sell_confirm"):
+        if text in ("no", "cancel"):
+            await update.message.reply_text("✅ Sale cancelled. Smart choice! 🔥")
+            context.user_data.pop("pending_sell_confirm", None)
+            context.user_data.pop("pending_sell_order", None)
+            return
+        elif text == "yes":
+            # Ejecutar venta
+            order = context.user_data.get("pending_sell_order")
+            if not order:
+                return
+            engine = TradingEngine(testnet=True)
+            result = engine.sell_market(order["symbol"], order["amount"])
+            if result:
+                await update.message.reply_text(f"✅ Sell executed on testnet. ID: {result['orderId']}")
+            else:
+                await update.message.reply_text("❌ Sell failed.")
+            context.user_data.pop("pending_sell_confirm", None)
+            context.user_data.pop("pending_sell_order", None)
+            return
+        else:
+            await update.message.reply_text("❌ Type *YES* to confirm, or *NO* to cancel.")
+            return
+
+    # Confirmación normal
     if text not in ("yes", "sí", "si"):
         return
     order = context.user_data.get("pending_order")
