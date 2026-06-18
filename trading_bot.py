@@ -10,7 +10,7 @@ import asyncio
 import feedparser
 import re
 from datetime import datetime, timedelta
-from flask import Flask, request
+from flask import Flask, request, render_template, jsonify
 from dotenv import load_dotenv
 import mercadopago
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -906,7 +906,7 @@ async def help_menu(query):
 """
     await query.edit_message_text(message, parse_mode="Markdown")
 
-# ==================== COMPARE (COMPETITION) ====================
+# ==================== COMPARE ====================
 async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """
 ⚔️ *CryptoArch Agent vs. The Giants*
@@ -919,9 +919,10 @@ async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
 | **AI Analysis** | ❌ | ❌ | ❌ | ✅ **Contextual** |
 | **Multi-Chain** | 14 | 4 | 1 | **5 (growing)** |
 | **Free Trial** | ❌ | ❌ | ❌ | ✅ **14 days** |
-| **Anti-MEV** | ✅ | ✅ | ✅ | ❌ (coming soon) |
+| **Anti-MEV** | ✅ | ✅ | ✅ | ✅ **Real** |
 | **Whale Radar** | ❌ | ❌ | ❌ | ✅ **Predictive AI** |
 | **Panic Shield** | ❌ | ❌ | ❌ | ✅ **Emotional protection** |
+| **Web Terminal** | ❌ | ❌ | ✅ | ✅ **Coming soon** |
 
 💀 *The math is simple:* They charge 1%. We charge 0.2%.  
 That's **5x cheaper**. For a trader with $10,000 volume per month:
@@ -940,7 +941,7 @@ Use /plan to check your level.
 """
     await update.message.reply_text(text, parse_mode="Markdown")
 
-# ==================== WHALE FUNCTIONS (MULTI-CHAIN) ====================
+# ==================== WHALE FUNCTIONS ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
 
@@ -967,7 +968,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
             
-            # Radar de Ballenas
             radar = predecir_movimiento_ballena(alert)
             output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
             
@@ -988,7 +988,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
             
-            # Radar de Ballenas
             radar = predecir_movimiento_ballena(alert)
             output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
             
@@ -1009,7 +1008,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
             
-            # Radar de Ballenas
             radar = predecir_movimiento_ballena(alert)
             output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
             
@@ -1019,7 +1017,7 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "◎ *Solana (SOL)*\nNo significant movements recently.\n\n"
 
-    # Polygon (MATIC)
+    # Polygon
     if matic_alerts:
         output += "🟣 *Polygon (MATIC)*\n"
         for idx, alert in enumerate(matic_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts)):
@@ -1030,7 +1028,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
             
-            # Radar de Ballenas
             radar = predecir_movimiento_ballena(alert)
             output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
             
@@ -1051,7 +1048,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
             
-            # Radar de Ballenas
             radar = predecir_movimiento_ballena(alert)
             output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
             
@@ -1092,7 +1088,6 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
     context.user_data["last_whale_alerts"] = all_alerts
 
-    # Bitcoin
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
         for idx, alert in enumerate(btc_alerts):
@@ -1110,7 +1105,6 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
 
-    # Ethereum
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
         for idx, alert in enumerate(eth_alerts, start=len(btc_alerts)):
@@ -1128,7 +1122,6 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
 
-    # Solana
     if sol_alerts:
         output += "◎ *Solana (SOL)*\n"
         for idx, alert in enumerate(sol_alerts, start=len(btc_alerts) + len(eth_alerts)):
@@ -1146,7 +1139,6 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "◎ *Solana (SOL)*\nNo significant movements recently.\n\n"
 
-    # Polygon (MATIC)
     if matic_alerts:
         output += "🟣 *Polygon (MATIC)*\n"
         for idx, alert in enumerate(matic_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts)):
@@ -1164,7 +1156,6 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "🟣 *Polygon (MATIC)*\nNo significant movements recently.\n\n"
 
-    # Arbitrum
     if arb_alerts:
         output += "🔵 *Arbitrum (ARB)*\n"
         for idx, alert in enumerate(arb_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts) + len(matic_alerts)):
@@ -1399,7 +1390,7 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         await query.edit_message_text(f"❌ Error: {e}")
 
-# ==================== RULES (AUTO TRADING) ====================
+# ==================== RULES ====================
 async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     try:
@@ -1548,7 +1539,7 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Unknown subcommand. Use: add, list, toggle, delete")
 
-# ==================== SNIPE (FASE 3) ====================
+# ==================== SNIPE ====================
 async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     try:
@@ -1638,7 +1629,7 @@ async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Unknown subcommand. Use: set, on, off")
 
-# ==================== SNIPER X (FASE 5) ====================
+# ==================== SNIPER X ====================
 async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
@@ -1974,7 +1965,6 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
-# ==================== SELL CON ESCUDO ANTI-PÁNICO ====================
 async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     level = get_user_level(chat_id)
@@ -2020,7 +2010,6 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Error in Panic Shield: {e}")
 
-        # Si no hay pánico, proceder con la venta normal
         engine = TradingEngine(testnet=True)
         base_asset = symbol.replace("USDT", "")
         balance_asset = engine.get_balance(base_asset)
@@ -2038,7 +2027,6 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
     
-    # Verificar si es confirmación del Escudo Anti-Pánico
     if context.user_data.get("pending_sell_confirm"):
         if text in ("no", "cancel"):
             await update.message.reply_text("✅ Sale cancelled. Smart choice! 🔥")
@@ -2046,7 +2034,6 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("pending_sell_order", None)
             return
         elif text == "yes":
-            # Ejecutar venta
             order = context.user_data.get("pending_sell_order")
             if not order:
                 return
@@ -2063,7 +2050,6 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Type *YES* to confirm, or *NO* to cancel.")
             return
 
-    # Confirmación normal
     if text not in ("yes", "sí", "si"):
         return
     order = context.user_data.get("pending_order")
@@ -2216,10 +2202,11 @@ async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
-# ==================== WEBHOOK ====================
+# ==================== WEBHOOK + WEB TERMINAL ====================
 if MP_WEBHOOK_URL:
     webhook_app = Flask(__name__)
 
+    # ==================== WEBHOOK DE MERCADO PAGO ====================
     @webhook_app.route('/webhook', methods=['POST'])
     def webhook():
         data = request.json
@@ -2242,6 +2229,88 @@ if MP_WEBHOOK_URL:
         except Exception as e:
             logger.error(f"Webhook error: {e}")
             return "Error", 500
+
+    # ==================== WEB TERMINAL ====================
+    @webhook_app.route('/dashboard')
+    def dashboard():
+        chat_id = "8355456581"  # Tu ID para pruebas
+        try:
+            return render_template('dashboard.html', chat_id=chat_id)
+        except Exception as e:
+            logger.error(f"Error loading dashboard: {e}")
+            return f"Error loading dashboard: {e}", 500
+
+    @webhook_app.route('/api/stats/<chat_id>')
+    def get_stats(chat_id):
+        if not supabase:
+            return jsonify({"error": "Database not connected"}), 500
+        try:
+            stats = supabase.table("user_stats").select("*").eq("chat_id", chat_id).execute()
+            if not stats.data:
+                default_stats = {
+                    "chat_id": chat_id,
+                    "total_trades": 0,
+                    "win_rate": 0.0,
+                    "pnl": 0.0,
+                    "legendary_mode": False
+                }
+                supabase.table("user_stats").insert(default_stats).execute()
+                return jsonify(default_stats)
+            return jsonify(stats.data[0])
+        except Exception as e:
+            logger.error(f"Error getting stats: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    @webhook_app.route('/api/settings/<chat_id>')
+    def get_settings(chat_id):
+        if not supabase:
+            return jsonify({"error": "Database not connected"}), 500
+        try:
+            sniper = supabase.table("sniper_settings").select("*").eq("chat_id", chat_id).execute()
+            sniper_data = sniper.data[0] if sniper.data else {}
+            copy = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
+            copy_data = copy.data[0] if copy.data else {}
+            return jsonify({
+                "sniper": sniper_data,
+                "copy": copy_data
+            })
+        except Exception as e:
+            logger.error(f"Error getting settings: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    @webhook_app.route('/api/update_sniper', methods=['POST'])
+    def update_sniper():
+        if not supabase:
+            return jsonify({"error": "Database not connected"}), 500
+        try:
+            data = request.json
+            chat_id = data.get("chat_id")
+            field = data.get("field")
+            value = data.get("value")
+            if not chat_id or not field:
+                return jsonify({"error": "Missing parameters"}), 400
+            supabase.table("sniper_settings").update({field: value}).eq("chat_id", chat_id).execute()
+            return jsonify({"success": True})
+        except Exception as e:
+            logger.error(f"Error updating sniper: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    @webhook_app.route('/api/update_copy', methods=['POST'])
+    def update_copy():
+        if not supabase:
+            return jsonify({"error": "Database not connected"}), 500
+        try:
+            data = request.json
+            chat_id = data.get("chat_id")
+            field = data.get("field")
+            value = data.get("value")
+            if not chat_id or not field:
+                return jsonify({"error": "Missing parameters"}), 400
+            supabase.table("copy_settings").update({field: value}).eq("chat_id", chat_id).execute()
+            return jsonify({"success": True})
+        except Exception as e:
+            logger.error(f"Error updating copy: {e}")
+            return jsonify({"error": str(e)}), 500
 
     def run_webhook():
         port = int(os.getenv("PORT", 5000))
