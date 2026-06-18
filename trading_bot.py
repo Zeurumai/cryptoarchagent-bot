@@ -2204,7 +2204,7 @@ async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== WEBHOOK + WEB TERMINAL ====================
 if MP_WEBHOOK_URL:
-    webhook_app = Flask(__name__)
+    webhook_app = Flask(__name__, template_folder='templates')
 
     # ==================== WEBHOOK DE MERCADO PAGO ====================
     @webhook_app.route('/webhook', methods=['POST'])
@@ -2231,6 +2231,10 @@ if MP_WEBHOOK_URL:
             return "Error", 500
 
     # ==================== WEB TERMINAL ====================
+    @webhook_app.route('/ping')
+    def ping():
+        return "OK", 200
+
     @webhook_app.route('/dashboard')
     def dashboard():
         chat_id = "8355456581"  # Tu ID para pruebas
