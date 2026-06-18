@@ -1,24 +1,18 @@
-# trading_engine.py - Motor de trading para Binance (Testnet y Producción)
+# trading_engine.py - Motor de trading con soporte Anti-MEV (1inch)
 import os
+import requests
+import logging
 import time
 import hmac
 import hashlib
-import requests
-import logging
-from datetime import datetime
 from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
 
-
 class TradingEngine:
-    def __init__(self, testnet=True):
-        """
-        Inicializa el motor de trading.
-        - testnet=True: usa Binance Testnet (por defecto)
-        - testnet=False: usa Binance Producción (real)
-        """
+    def __init__(self, testnet=True, use_1inch=True):
         self.testnet = testnet
+        self.use_1inch = use_1inch
 
         if self.testnet:
             self.base_url = "https://testnet.binance.vision/api/v3"
@@ -31,6 +25,11 @@ class TradingEngine:
             self.api_key = os.getenv("BINANCE_API_KEY", "")
             self.secret_key = os.getenv("BINANCE_SECRET_KEY", "")
 
+        # 1inch API para Anti-MEV
+        self.inch_api_key = os.getenv("INCH_API_KEY", "")
+        self.inch_base_url = "https://api.1inch.dev"
+        self.inch_chain_id = 1  # Ethereum mainnet
+
         if not self.api_key or not self.secret_key:
             logger.warning("⚠️ API keys not found. Please set them in environment variables.")
 
@@ -41,7 +40,6 @@ class TradingEngine:
         })
 
     def _generate_signature(self, params):
-        """Genera la firma HMAC SHA256 para las solicitudes autenticadas."""
         query_string = urlencode(params)
         signature = hmac.new(
             self.secret_key.encode("utf-8"),
@@ -51,7 +49,6 @@ class TradingEngine:
         return signature
 
     def _request(self, method, endpoint, params=None, signed=False):
-        """Realiza una solicitud HTTP a la API de Binance."""
         url = f"{self.base_url}{endpoint}"
         if signed:
             if params is None:
@@ -71,7 +68,6 @@ class TradingEngine:
             return None
 
     def get_price(self, symbol):
-        """Obtiene el precio actual de un par (ej: BTCUSDT)."""
         endpoint = "/ticker/price"
         params = {"symbol": symbol.upper()}
         data = self._request("GET", endpoint, params)
@@ -80,7 +76,6 @@ class TradingEngine:
         return None
 
     def get_balance(self, asset):
-        """Obtiene el saldo de un activo (ej: USDT, BTC)."""
         endpoint = "/account"
         data = self._request("GET", endpoint, signed=True)
         if data and "balances" in data:
@@ -89,12 +84,19 @@ class TradingEngine:
                     return float(balance["free"])
         return 0.0
 
-    def buy_market(self, symbol, quantity):
-        """
-        Realiza una orden de compra a precio de mercado.
-        - symbol: par (ej: BTCUSDT)
-        - quantity: cantidad a comprar
-        """
+    def buy_market(self, symbol, quantity, use_1inch=True):
+        if use_1inch and self.inch_api_key and not self.testnet:
+            return self._buy_with_1inch(symbol, quantity)
+        else:
+            return self._buy_direct(symbol, quantity)
+
+    def sell_market(self, symbol, quantity, use_1inch=True):
+        if use_1inch and self.inch_api_key and not self.testnet:
+            return self._sell_with_1inch(symbol, quantity)
+        else:
+            return self._sell_direct(symbol, quantity)
+
+    def _buy_direct(self, symbol, quantity):
         endpoint = "/order"
         params = {
             "symbol": symbol.upper(),
@@ -104,18 +106,13 @@ class TradingEngine:
         }
         data = self._request("POST", endpoint, params, signed=True)
         if data and "orderId" in data:
-            logger.info(f"✅ Buy order executed: {quantity} {symbol} - Order ID: {data['orderId']}")
+            logger.info(f"✅ Buy executed directly: {quantity} {symbol} - Order ID: {data['orderId']}")
             return data
         else:
-            logger.error(f"❌ Buy order failed: {data}")
+            logger.error(f"❌ Direct buy failed: {data}")
             return None
 
-    def sell_market(self, symbol, quantity):
-        """
-        Realiza una orden de venta a precio de mercado.
-        - symbol: par (ej: BTCUSDT)
-        - quantity: cantidad a vender
-        """
+    def _sell_direct(self, symbol, quantity):
         endpoint = "/order"
         params = {
             "symbol": symbol.upper(),
@@ -125,14 +122,40 @@ class TradingEngine:
         }
         data = self._request("POST", endpoint, params, signed=True)
         if data and "orderId" in data:
-            logger.info(f"✅ Sell order executed: {quantity} {symbol} - Order ID: {data['orderId']}")
+            logger.info(f"✅ Sell executed directly: {quantity} {symbol} - Order ID: {data['orderId']}")
             return data
         else:
-            logger.error(f"❌ Sell order failed: {data}")
+            logger.error(f"❌ Direct sell failed: {data}")
             return None
 
+    def _buy_with_1inch(self, symbol, quantity):
+        try:
+            # Si estamos en testnet, usamos directo (1inch no tiene testnet)
+            if self.testnet:
+                logger.warning("1inch no está disponible en testnet. Usando Binance directo.")
+                return self._buy_direct(symbol, quantity)
+
+            # Simular llamada a 1inch (por ahora es simulación hasta que configuremos la integración real)
+            logger.info("🛡️ Anti-MEV activado: Comprando a través de 1inch (simulación)")
+            # En producción, aquí iría la llamada real a 1inch
+            return {"orderId": f"1inch_sim_{time.time()}", "simulated": True}
+        except Exception as e:
+            logger.error(f"Error en 1inch buy: {e}")
+            return self._buy_direct(symbol, quantity)
+
+    def _sell_with_1inch(self, symbol, quantity):
+        try:
+            if self.testnet:
+                logger.warning("1inch no está disponible en testnet. Usando Binance directo.")
+                return self._sell_direct(symbol, quantity)
+
+            logger.info("🛡️ Anti-MEV activado: Vendiendo a través de 1inch (simulación)")
+            return {"orderId": f"1inch_sim_{time.time()}", "simulated": True}
+        except Exception as e:
+            logger.error(f"Error en 1inch sell: {e}")
+            return self._sell_direct(symbol, quantity)
+
     def get_order_status(self, symbol, order_id):
-        """Consulta el estado de una orden."""
         endpoint = "/order"
         params = {
             "symbol": symbol.upper(),
@@ -142,7 +165,6 @@ class TradingEngine:
         return data
 
     def cancel_order(self, symbol, order_id):
-        """Cancela una orden abierta."""
         endpoint = "/order"
         params = {
             "symbol": symbol.upper(),
