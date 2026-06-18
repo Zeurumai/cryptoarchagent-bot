@@ -86,39 +86,57 @@ else:
 
 SUBSCRIBERS_FILE = "subscribers.json"
 
-# ==================== NIVELES ====================
+# ==================== NIVELES (NUEVO MODELO) ====================
 LEVELS = {
     0: {
         "name": "Explorer",
         "emoji": "🧭",
-        "commission": 0.005,
+        "commission": 0.005,      # 0.5%
         "insignia": "🔰",
-        "benefits": "14 days free, 3 alerts, trading access, whales, news",
-        "active": False
+        "benefits": "Alertas básicas, ballenas, noticias, 14 días gratis",
+        "active": False,
+        "beta_access": False,
+        "token_reward": False
     },
     1: {
         "name": "Trader",
         "emoji": "📊",
-        "commission": 0.003,
+        "commission": 0.004,      # 0.4%
         "insignia": "⚡",
-        "benefits": "Full access, no subscription, reduced commission",
-        "active": True
+        "benefits": "Todo Explorer + Copy Trading",
+        "active": True,
+        "beta_access": False,
+        "token_reward": False
     },
     2: {
         "name": "Pro",
         "emoji": "⭐",
-        "commission": 0.002,
+        "commission": 0.003,      # 0.3%
         "insignia": "🌟",
-        "benefits": "Subscription included, direct team access (priority)",
-        "active": True
+        "benefits": "Todo Trader + Sniper X + Auto Trading",
+        "active": True,
+        "beta_access": False,
+        "token_reward": False
     },
     3: {
         "name": "Elite",
         "emoji": "👑",
-        "commission": 0.002,
+        "commission": 0.003,      # 0.3%
         "insignia": "🏆",
-        "benefits": "Beta features, exclusive badge, vote on new features",
-        "active": True
+        "benefits": "Todo Pro + Acceso Beta + Insignia exclusiva",
+        "active": True,
+        "beta_access": True,
+        "token_reward": 0.0005    # 0.05% en tokens
+    },
+    4: {
+        "name": "Legendary",
+        "emoji": "🏆",
+        "commission": 0.003,      # 0.3%
+        "insignia": "⚜️",
+        "benefits": "Todo Elite + Voto en features + Soporte VIP",
+        "active": True,
+        "beta_access": True,
+        "token_reward": 0.0005    # 0.05% en tokens
     }
 }
 
@@ -215,6 +233,13 @@ def get_user_commission(chat_id):
     if level < 0:
         return None
     return LEVELS.get(level, LEVELS[0])["commission"]
+
+def get_token_reward(chat_id):
+    """Devuelve el porcentaje de token reward para el usuario (0.05% si es Elite/Legendary)"""
+    level = get_user_level(chat_id)
+    if level >= 3:  # Elite o Legendary
+        return 0.0005  # 0.05%
+    return 0.0
 
 def get_user_insignia(chat_id):
     level = get_user_level(chat_id)
@@ -343,21 +368,20 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Limited features (3 alerts)\n\n"
         "⚡ *Why CryptoArch Agent is different:*\n"
         "• Maestro, Banana Gun and Trojan charge 1% per trade.\n"
-        "• We charge 0.2% fixed. That's 5x cheaper.\n"
+        "• We charge from 0.5% down to 0.3%.\n"
         "• They execute fast. We make you think faster.\n"
         "• They copy traders. We copy whales with AI.\n\n"
         "To unlock full benefits, you have two options:\n"
         "1️⃣ *Deposit on Binance* using our referral link (no subscription):\n"
         f"👉 {BINANCE_REFERRAL_LINK}\n"
-        "   • ≥ 50 USDT → Trader (0.3% comisión)\n"
-        "   • ≥ 100 USDT → Pro (0.2% comisión, premium)\n"
-        "   • ≥ 500 USDT → Elite (0.2% comisión, VIP)\n\n"
-        "2️⃣ *Pay a subscription* (no deposit required):\n"
-        "   • Use /pay to see plans (Pro level, 0.2% commission).\n\n"
+        "   • ≥ 50 USDT → Trader (0.4% comisión)\n"
+        "   • ≥ 100 USDT → Pro (0.3% comisión, premium)\n"
+        "   • ≥ 500 USDT → Elite (0.3% comisión, VIP + token reward)\n\n"
+        "2️⃣ *Get $CARCH tokens* (coming soon) for Elite/Legendary benefits.\n\n"
         "Use /plan to see your current level.\n"
         "Use /activate to check your deposit level.\n\n"
-        "💀 *Remember:* Maestro, Banana Gun and Trojan are 5x more expensive.\n"
-        "You are already ahead.",
+        "💀 *Remember:* Maestro, Banana Gun and Trojan charge 1%.\n"
+        "We charge from 0.5% to 0.3%.",
         parse_mode="Markdown"
     )
     await start(update, context)
@@ -475,11 +499,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "To continue trading with reduced commissions, you have two options:\n\n"
             "1️⃣ *Deposit on Binance* using our referral link:\n"
             f"👉 {BINANCE_REFERRAL_LINK}\n"
-            "   • Deposit ≥ 50 USDT → Trader (0.3% comisión)\n"
-            "   • Deposit ≥ 100 USDT → Pro (0.2% + premium)\n"
-            "   • Deposit ≥ 500 USDT → Elite (0.2% + VIP)\n\n"
-            "2️⃣ *Pay a subscription* (no deposit required):\n"
-            "   • Use /pay to activate premium.\n\n"
+            "   • Deposit ≥ 50 USDT → Trader (0.4% comisión)\n"
+            "   • Deposit ≥ 100 USDT → Pro (0.3% + premium)\n"
+            "   • Deposit ≥ 500 USDT → Elite (0.3% + VIP + token reward)\n\n"
+            "2️⃣ *Get $CARCH tokens* (coming soon) for Elite/Legendary benefits.\n\n"
             "Choose the option that best suits you! 🚀",
             parse_mode="Markdown"
         )
@@ -504,7 +527,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📅 Auto reports", callback_data="reports_config")],
         [InlineKeyboardButton("💰 My balance (Testnet)", callback_data="balance")],
         [InlineKeyboardButton("💎 My status", callback_data="premium")],
-        [InlineKeyboardButton("💳 Activate Premium", callback_data="pay")],
         [InlineKeyboardButton("🐋 Whales (Free)", callback_data="whale")],
         [InlineKeyboardButton("📅 Plans", callback_data="plans")],
         [InlineKeyboardButton("📰 News", callback_data="news")],
@@ -591,24 +613,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif level == 0:
             message = "🧭 *Explorer* (Trial)\n\n💰 Commission: 0.5%\n🎁 Benefits: 14 days free, 3 alerts, trading access\n\nUpgrade with /activate."
         else:
-            message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans."
+            message = "🔒 *FREE user*\n\nTo get started, use /start."
         await query.edit_message_text(message, parse_mode="Markdown")
     elif data == "whale":
         await whale_callback(update, context)
     elif data == "plans":
         text = """
-📅 *Subscription plans* (prices in MXN, one‑time payment):
+📊 *Commission levels* (no subscriptions):
 
-• *Monthly*: $190 / 30 days
-• *Quarterly*: $540 / 90 days (save $30)
-• *Yearly*: $1900 / 365 days (save $380)
+• *Explorer*: 0.5% (free)
+• *Trader*: 0.4% (≥ 50 USDT deposited)
+• *Pro*: 0.3% (≥ 100 USDT or volume > $10k)
+• *Elite*: 0.3% + token reward ($CARCH holder)
+• *Legendary*: 0.3% + token reward (holder + volume + referrals)
 
-To activate, type:
-/pay monthly
-/pay quarterly
-/pay yearly
+🪙 *Token $CARCH*: Elite and Legendary holders receive 0.05% of all bot commissions.
 
-*After payment, your premium will be activated automatically.*
+Use /activate to check your level.
 """
         await query.edit_message_text(text, parse_mode="Markdown")
     elif data == "news":
@@ -655,7 +676,7 @@ To activate, type:
                 "⏰ *Your trial has expired!*\n\n"
                 "To continue trading, deposit on Binance with our referral link:\n"
                 f"{BINANCE_REFERRAL_LINK}\n\n"
-                "Or subscribe with /pay.",
+                "Or wait for $CARCH token launch.",
                 parse_mode="Markdown"
             )
         else:
@@ -667,7 +688,7 @@ To activate, type:
                 "⏰ *Your trial has expired!*\n\n"
                 "To continue trading, deposit on Binance with our referral link:\n"
                 f"{BINANCE_REFERRAL_LINK}\n\n"
-                "Or subscribe with /pay.",
+                "Or wait for $CARCH token launch.",
                 parse_mode="Markdown"
             )
         else:
@@ -684,21 +705,27 @@ To activate, type:
             commission = get_user_commission(chat_id)
             benefits = get_level_benefits(level)
             level_name = LEVELS[level]["name"]
-            message = f"📋 *Your current level*\n\n{insignia} *{level_name}*\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n\n"
+            token_reward = get_token_reward(chat_id)
+            message = f"📋 *Your current level*\n\n{insignia} *{level_name}*\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n"
+            if token_reward > 0:
+                message += f"🪙 *Token reward:* {token_reward*100:.2f}% of all bot commissions in $CARCH\n"
             if fee:
                 message += f"💰 Trade fee (testnet): {fee}%\n"
             else:
                 message += "💰 No real trading.\n"
             if level == 3:
                 message += "\n👑 *You are an ELITE member!*"
+            elif level == 4:
+                message += "\n🏆 *You are LEGENDARY!*"
             else:
                 message += f"\n*How to upgrade?*\n"
                 message += f"1. Register on Binance using our link: {BINANCE_REFERRAL_LINK}\n"
                 message += "2. Deposit the required amount:\n"
-                message += "   • Trader: 50 USDT (0.3% fee)\n"
-                message += "   • Pro: 100 USDT (0.2% fee + premium)\n"
-                message += "   • Elite: 500 USDT (0.2% fee + VIP benefits)\n"
+                message += "   • Trader: 50 USDT (0.4% fee)\n"
+                message += "   • Pro: 100 USDT (0.3% fee + premium)\n"
+                message += "   • Elite: 500 USDT (0.3% fee + token reward)\n"
                 message += "3. Run /activate to upgrade your level.\n"
+                message += "4. Or get $CARCH tokens (coming soon)."
         else:
             message = "⏰ *Trial expired.* Please deposit or subscribe to continue."
         await query.edit_message_text(message, parse_mode="Markdown")
@@ -881,8 +908,7 @@ async def help_menu(query):
 /alerts - View/manage alerts
 /balance - Testnet balance
 /premium - Your premium status
-/pay - Activate Premium (one‑time payment)
-/plans - View subscription plans
+/plans - View commission levels
 /whale - Whale movements (free, with AI)
 /info - Detailed coin info (e.g. /info BTC)
 /news - Latest crypto news
@@ -896,11 +922,14 @@ async def help_menu(query):
 /sniper - Configure Sniper X execution (e.g. /sniper set 100 2 aggressive true on)
 /compare - Compare us with the competition
 
-*Benefits by level:*
+*Commission levels:*
 🧭 Explorer (0.5% comisión) - 14 days free
-📊 Trader (0.3%) - Deposit ≥ 50 USDT
-⭐ Pro (0.2% + premium) - Deposit ≥ 100 USDT
-👑 Elite (0.2% + VIP) - Deposit ≥ 500 USDT
+📊 Trader (0.4%) - Deposit ≥ 50 USDT
+⭐ Pro (0.3% + premium) - Deposit ≥ 100 USDT
+👑 Elite (0.3% + token reward) - $CARCH holder
+🏆 Legendary (0.3% + token reward) - Elite + volume + referrals
+
+🪙 *Token $CARCH*: Elite and Legendary holders receive 0.05% of all bot commissions.
 
 ⚠️ *Legal*: Not a financial advisor. Use /terms for details.
 """
@@ -913,7 +942,8 @@ async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 | Feature | Maestro | Banana Gun | Trojan | **CryptoArch Agent** |
 |---------|---------|------------|--------|----------------------|
-| **Commission** | 1% | 1%/0.5% | 1% | **0.2%** ✅ |
+| **Commission** | 1% | 1%/0.5% | 1% | **0.5% → 0.3%** ✅ |
+| **Subscription** | $200/mo | ❌ | ❌ | **FREE** ✅ |
 | **Whale Alerts** | ❌ | ❌ | ❌ | ✅ **AI-powered** |
 | **Copy Trading** | ✅ | ✅ | ✅ | ✅ **Whale copy** |
 | **AI Analysis** | ❌ | ❌ | ❌ | ✅ **Contextual** |
@@ -922,14 +952,14 @@ async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
 | **Anti-MEV** | ✅ | ✅ | ✅ | ✅ **Real** |
 | **Whale Radar** | ❌ | ❌ | ❌ | ✅ **Predictive AI** |
 | **Panic Shield** | ❌ | ❌ | ❌ | ✅ **Emotional protection** |
-| **Web Terminal** | ❌ | ❌ | ✅ | ✅ **Coming soon** |
+| **Token Reward** | ❌ | ❌ | ❌ | ✅ **0.05% of all commissions** |
 
-💀 *The math is simple:* They charge 1%. We charge 0.2%.  
-That's **5x cheaper**. For a trader with $10,000 volume per month:
+💀 *The math is simple:* They charge 1%. We charge from 0.5% to 0.3%.  
+That's **up to 3.3x cheaper**. For a trader with $10,000 volume per month:
 - Maestro/Banana/Trojan: $100/month
-- CryptoArch Agent: $20/month
+- CryptoArch Agent: $30/month (Pro level)
 
-**You save $80/month. Every month.**
+**You save $70/month. Every month.**
 
 Plus, you get AI-powered whale analysis that *none of them* offer.
 
@@ -1257,6 +1287,14 @@ async def execute_sniper(chat_id, alerts, context):
         else:
             slippage = max(0.5, s["slippage"] - 1.0)
             speed = "🛡️ Safe"
+        
+        # Calcular comisión y token reward
+        commission = get_user_commission(int(chat_id)) or 0.003
+        token_reward = get_token_reward(int(chat_id))
+        amount_usd = s['max_amount']
+        fee = amount_usd * commission
+        token_amount = fee * token_reward if token_reward > 0 else 0
+        
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"🎯 *Sniper X Execution*\n\n"
@@ -1265,8 +1303,10 @@ async def execute_sniper(chat_id, alerts, context):
                  f"📉 Slippage: {slippage:.1f}%\n"
                  f"⚡ Mode: {speed}\n"
                  f"🛡️ Anti-MEV: {'✅ ON' if s['anti_mev'] else '❌ OFF'}\n"
-                 f"📊 Asset: {symbol}\n\n"
-                 f"*Simulation:* Order would be executed on testnet.\n"
+                 f"📊 Asset: {symbol}\n"
+                 f"💵 Commission: ${fee:.4f} ({commission*100:.1f}%)\n"
+                 + (f"🪙 Token reward: {token_amount:.6f} $CARCH\n" if token_amount > 0 else "")
+                 + f"\n*Simulation:* Order would be executed on testnet.\n"
                  f"⚠️ *Real execution coming soon.*",
             parse_mode="Markdown"
         )
@@ -1377,14 +1417,23 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if mode == "invert":
             trade_direction = "buy" if trade_direction == "sell" else "sell"
             emoji = "🔄" + emoji
+        
+        # Calcular comisión y token reward
+        commission = get_user_commission(int(chat_id)) or 0.003
+        token_reward = get_token_reward(int(chat_id))
+        fee = max_amount * commission
+        token_amount = fee * token_reward if token_reward > 0 else 0
+        
         await query.edit_message_text(
             f"🐋 *Copy Trade Execution*\n\n"
             f"{emoji} Direction: *{trade_direction.upper()}*\n"
             f"💰 Amount: ${max_amount:.2f} USDT\n"
             f"📉 Slippage: {slippage*100:.1f}%\n"
             f"🔄 Mode: {mode}\n"
-            f"📊 Asset: {symbol}\n\n"
-            f"⚡ *Simulation:* Order executed on testnet (real trading coming soon).",
+            f"📊 Asset: {symbol}\n"
+            f"💵 Commission: ${fee:.4f} ({commission*100:.1f}%)\n"
+            + (f"🪙 Token reward: {token_amount:.6f} $CARCH\n" if token_amount > 0 else "")
+            + f"\n⚡ *Simulation:* Order executed on testnet (real trading coming soon).",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -1745,31 +1794,37 @@ async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         commission = get_user_commission(chat_id)
         benefits = get_level_benefits(level)
         level_name = LEVELS[level]["name"]
+        token_reward = get_token_reward(chat_id)
         if end_str:
             end_date = datetime.fromisoformat(end_str).strftime("%d/%m/%Y")
-            message = f"✨ *{insignia} {level_name}* ✨\n\n📅 *Valid until:* {end_date}\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n\n✅ Real trading access\n✅ Reduced fee\n✅ Whale alerts"
+            message = f"✨ *{insignia} {level_name}* ✨\n\n📅 *Valid until:* {end_date}\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n"
+            if token_reward > 0:
+                message += f"🪙 *Token reward:* {token_reward*100:.2f}% of all bot commissions\n"
+            message += "\n✅ Real trading access\n✅ Reduced fee\n✅ Whale alerts"
         else:
-            message = f"✨ *{insignia} {level_name}* ✨\n\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n\n✅ Lifetime access\n✅ Whale alerts"
+            message = f"✨ *{insignia} {level_name}* ✨\n\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n"
+            if token_reward > 0:
+                message += f"🪙 *Token reward:* {token_reward*100:.2f}% of all bot commissions\n"
+            message += "\n✅ Lifetime access\n✅ Whale alerts"
     elif level == 0:
         message = "🧭 *Explorer* (Trial)\n\n💰 Commission: 0.5%\n🎁 Benefits: 14 days free, 3 alerts, trading access\n\nUpgrade with /activate."
     else:
-        message = "🔒 *FREE user*\n\nTo activate Premium, use /pay or /plans."
+        message = "🔒 *FREE user*\n\nTo get started, use /start."
     await update.message.reply_text(message, parse_mode="Markdown")
 
 async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """
-📅 *Subscription plans* (prices in MXN, one‑time payment):
+📊 *Commission levels* (no subscriptions):
 
-• *Monthly*: $190 / 30 days
-• *Quarterly*: $540 / 90 days (save $30)
-• *Yearly*: $1900 / 365 days (save $380)
+• *Explorer*: 0.5% (free)
+• *Trader*: 0.4% (≥ 50 USDT deposited)
+• *Pro*: 0.3% (≥ 100 USDT or volume > $10k)
+• *Elite*: 0.3% + token reward ($CARCH holder)
+• *Legendary*: 0.3% + token reward (holder + volume + referrals)
 
-To activate, type:
-/pay monthly
-/pay quarterly
-/pay yearly
+🪙 *Token $CARCH*: Elite and Legendary holders receive 0.05% of all bot commissions.
 
-*After payment, your premium will be activated automatically.*
+Use /activate to check your level.
 """
     await update.message.reply_text(text, parse_mode="Markdown")
 
@@ -1851,80 +1906,10 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_user_email(chat_id, email)
     await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
 
-# ==================== PAYMENT COMMAND ====================
-async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    args = context.args
-    user_email = get_user_email(chat_id)
-    if not user_email:
-        await update.message.reply_text(
-            "❌ Please set your email first using `/setemail your@email.com`.\n"
-            "This email will be used for the payment receipt.",
-            parse_mode="Markdown"
-        )
-        return
-    if not args:
-        await update.message.reply_text(
-            "ℹ️ *One‑time payment plans*\n\n"
-            "Use: `/pay monthly` (MXN 190, 30 days)\n"
-            "Use: `/pay quarterly` (MXN 540, 90 days)\n"
-            "Use: `/pay yearly` (MXN 1900, 365 days)\n\n"
-            "You will receive a payment link. After payment, your Premium will be activated automatically.",
-            parse_mode="Markdown"
-        )
-        return
-    plan_key = args[0].lower()
-    if plan_key == "monthly":
-        amount = 190.00
-        days = 30
-        plan_name = "Monthly"
-    elif plan_key == "quarterly":
-        amount = 540.00
-        days = 90
-        plan_name = "Quarterly"
-    elif plan_key == "yearly":
-        amount = 1900.00
-        days = 365
-        plan_name = "Yearly"
-    else:
-        await update.message.reply_text("❌ Invalid plan. Use: monthly, quarterly, yearly")
-        return
-    sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-    preference_data = {
-        "items": [{
-            "title": f"CryptoArch Agent - {plan_name} Plan",
-            "quantity": 1,
-            "currency_id": "MXN",
-            "unit_price": amount
-        }],
-        "external_reference": f"{chat_id}:{plan_key}",
-        "payer": {"email": user_email},
-        "back_urls": {
-            "success": "https://t.me/CryptoArchTrading_bot",
-            "failure": "https://t.me/CryptoArchTrading_bot"
-        },
-        "auto_return": "approved",
-        "notification_url": MP_WEBHOOK_URL
-    }
-    try:
-        response = sdk.preference().create(preference_data)
-        logger.info(f"MercadoPago response: {response}")
-        if response.get("status") == 201:
-            payment_link = response["response"]["init_point"]
-            await update.message.reply_text(
-                f"✅ *Payment generated for {plan_name} plan*\n\n"
-                f"🔗 [Click here to pay ${amount} MXN]({payment_link})\n\n"
-                f"After payment, your Premium will be activated for {days} days.\n"
-                f"Renewal is not automatic – you will be notified before expiration.",
-                parse_mode="Markdown",
-                disable_web_page_preview=True
-            )
-        else:
-            error_msg = response.get("message", "Unknown error")
-            await update.message.reply_text(f"❌ Error creating payment: {error_msg}")
-    except Exception as e:
-        logger.error(f"Error in /pay: {e}")
-        await update.message.reply_text("❌ Internal error. Try again later.")
+# ==================== PAYMENT COMMAND (DESACTIVADO) ====================
+# async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#     chat_id = update.effective_chat.id
+#     await update.message.reply_text("❌ Subscriptions have been removed. CryptoArch Agent is now 100% free with commission-based pricing.")
 
 # ==================== TRADING TESTNET ====================
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1935,7 +1920,7 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⏰ *Your trial has expired!*\n\n"
             "To continue trading, deposit on Binance with our referral link:\n"
             f"{BINANCE_REFERRAL_LINK}\n\n"
-            "Or subscribe with /pay.",
+            "Or wait for $CARCH token launch.",
             parse_mode="Markdown"
         )
         return
@@ -1960,7 +1945,16 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Insufficient testnet balance. Need ~${cost:.2f} USDT. You have ${usdt_balance:.2f} USDT.")
             return
         commission = get_user_commission(chat_id)
-        await update.message.reply_text(f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\nReply with *YES* (uppercase) to execute on testnet.\nCommission: {commission*100:.1f}%", parse_mode="Markdown")
+        token_reward = get_token_reward(chat_id)
+        fee = cost * commission if commission else 0
+        token_amount = fee * token_reward if token_reward > 0 else 0
+        await update.message.reply_text(
+            f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\n"
+            f"Commission: {commission*100:.1f}%\n"
+            + (f"🪙 Token reward: {token_amount:.6f} $CARCH\n" if token_amount > 0 else "")
+            + f"\nReply with *YES* (uppercase) to execute on testnet.",
+            parse_mode="Markdown"
+        )
         context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount}
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
@@ -1973,7 +1967,7 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⏰ *Your trial has expired!*\n\n"
             "To continue trading, deposit on Binance with our referral link:\n"
             f"{BINANCE_REFERRAL_LINK}\n\n"
-            "Or subscribe with /pay.",
+            "Or wait for $CARCH token launch.",
             parse_mode="Markdown"
         )
         return
@@ -2019,7 +2013,16 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         price = engine.get_price(symbol)
         value = amount * price
         commission = get_user_commission(chat_id)
-        await update.message.reply_text(f"🔴 *Confirm sell*\n{amount} {symbol} ≈ ${value:.2f} USD\nReply with *YES* (uppercase) to execute on testnet.\nCommission: {commission*100:.1f}%", parse_mode="Markdown")
+        token_reward = get_token_reward(chat_id)
+        fee = value * commission if commission else 0
+        token_amount = fee * token_reward if token_reward > 0 else 0
+        await update.message.reply_text(
+            f"🔴 *Confirm sell*\n{amount} {symbol} ≈ ${value:.2f} USD\n"
+            f"Commission: {commission*100:.1f}%\n"
+            + (f"🪙 Token reward: {token_amount:.6f} $CARCH\n" if token_amount > 0 else "")
+            + f"\nReply with *YES* (uppercase) to execute on testnet.",
+            parse_mode="Markdown"
+        )
         context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount}
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
@@ -2064,6 +2067,10 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if commission is not None and commission > 0:
                 fee = order["amount"] * commission
                 logger.info(f"Commission charged: {fee} {order['symbol']} ({commission*100:.1f}%)")
+                token_reward = get_token_reward(chat_id)
+                if token_reward > 0:
+                    token_amount = fee * token_reward
+                    logger.info(f"🪙 Token reward: {token_amount} $CARCH for {chat_id}")
             await update.message.reply_text(f"✅ Buy executed on testnet. ID: {result['orderId']}")
         else:
             await update.message.reply_text("❌ Buy failed.")
@@ -2073,6 +2080,10 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if commission is not None and commission > 0:
                 fee = order["amount"] * commission
                 logger.info(f"Commission charged: {fee} {order['symbol']} ({commission*100:.1f}%)")
+                token_reward = get_token_reward(chat_id)
+                if token_reward > 0:
+                    token_amount = fee * token_reward
+                    logger.info(f"🪙 Token reward: {token_amount} $CARCH for {chat_id}")
             await update.message.reply_text(f"✅ Sell executed on testnet. ID: {result['orderId']}")
         else:
             await update.message.reply_text("❌ Sell failed.")
@@ -2086,9 +2097,10 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚠️ *IMPORTANT:* This checks your TESTNET balance.\n"
         "To activate a real plan, deposit on real Binance.\n\n"
         "Minimum deposits for levels:\n"
-        "• Trader: 50 USDT (0.3% fee)\n"
-        "• Pro: 100 USDT (0.2% fee + premium)\n"
-        "• Elite: 500 USDT (0.2% fee + VIP benefits)",
+        "• Trader: 50 USDT (0.4% fee)\n"
+        "• Pro: 100 USDT (0.3% fee + premium)\n"
+        "• Elite: 500 USDT (0.3% fee + token reward)\n\n"
+        "🪙 *Token $CARCH:* Elite holders receive 0.05% of all bot commissions.",
         parse_mode="Markdown"
     )
     try:
@@ -2097,17 +2109,17 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         btc_balance = engine.get_balance("BTC")
         if btc_balance >= 0.01 or usdt_balance >= 500:
             level = 3
-            commission = 0.002
+            commission = 0.003
             insignia = "👑"
             name = "Elite"
         elif usdt_balance >= 100:
             level = 2
-            commission = 0.002
+            commission = 0.003
             insignia = "🌟"
             name = "Pro"
         elif usdt_balance >= 50:
             level = 1
-            commission = 0.003
+            commission = 0.004
             insignia = "⚡"
             name = "Trader"
         else:
@@ -2126,15 +2138,17 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_subscribers(subscribers)
         message = f"✅ *Level detected on TESTNET: {insignia} {name}*\n"
         message += f"💰 Commission: {commission*100:.1f}%\n"
+        if level >= 3:
+            message += f"🪙 Token reward: 0.05% of all bot commissions in $CARCH\n"
         message += f"📊 Detected balance (TESTNET): USDT ${usdt_balance:.2f}, BTC {btc_balance:.8f}\n\n"
         if level == 0:
             message += "Deposit ≥ 50 USDT to reach Trader level."
         elif level == 1:
             message += "Deposit ≥ 100 USDT to reach Pro level."
         elif level == 2:
-            message += "Deposit ≥ 500 USDT to reach Elite level."
+            message += "Deposit ≥ 500 USDT to reach Elite level (with token reward)."
         else:
-            message += "👑 You are ELITE! Congratulations."
+            message += "👑 You are ELITE! You receive 0.05% of all bot commissions in $CARCH tokens."
         await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
         await update.message.reply_text(f"❌ Error checking balance: {e}\nMake sure your Binance Testnet API keys are correct in .env.", parse_mode="Markdown")
@@ -2150,21 +2164,27 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         commission = get_user_commission(chat_id)
         benefits = get_level_benefits(level)
         level_name = LEVELS[level]["name"]
-        message = f"📋 *Your current level*\n\n{insignia} *{level_name}*\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n\n"
+        token_reward = get_token_reward(chat_id)
+        message = f"📋 *Your current level*\n\n{insignia} *{level_name}*\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n"
+        if token_reward > 0:
+            message += f"🪙 *Token reward:* {token_reward*100:.2f}% of all bot commissions in $CARCH\n"
         if fee:
             message += f"💰 Trade fee (testnet): {fee}%\n"
         else:
             message += "💰 No real trading.\n"
         if level == 3:
             message += "\n👑 *You are an ELITE member!*"
+        elif level == 4:
+            message += "\n🏆 *You are LEGENDARY!*"
         else:
             message += f"\n*How to upgrade?*\n"
             message += f"1. Register on Binance using our link: {BINANCE_REFERRAL_LINK}\n"
             message += "2. Deposit the required amount:\n"
-            message += "   • Trader: 50 USDT (0.3% fee)\n"
-            message += "   • Pro: 100 USDT (0.2% fee + premium)\n"
-            message += "   • Elite: 500 USDT (0.2% fee + VIP benefits)\n"
+            message += "   • Trader: 50 USDT (0.4% fee)\n"
+            message += "   • Pro: 100 USDT (0.3% fee + premium)\n"
+            message += "   • Elite: 500 USDT (0.3% fee + token reward)\n"
             message += "3. Run /activate to upgrade your level.\n"
+            message += "4. Or get $CARCH tokens (coming soon)."
     else:
         message = "⏰ *Trial expired.* Please deposit or subscribe to continue."
     await update.message.reply_text(message, parse_mode="Markdown")
@@ -2179,13 +2199,13 @@ async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("Usage: /force_premium ID LEVEL (0-3)")
+        await update.message.reply_text("Usage: /force_premium ID LEVEL (0-4)")
         return
     try:
         target_id = int(args[0])
         level = int(args[1])
-        if level < 0 or level > 3:
-            await update.message.reply_text("Level must be 0-3.")
+        if level < 0 or level > 4:
+            await update.message.reply_text("Level must be 0-4.")
             return
         subscribers = load_subscribers()
         subscribers[str(target_id)] = {
@@ -2206,7 +2226,6 @@ async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if MP_WEBHOOK_URL:
     webhook_app = Flask(__name__, template_folder='templates')
 
-    # ==================== WEBHOOK DE MERCADO PAGO ====================
     @webhook_app.route('/webhook', methods=['POST'])
     def webhook():
         data = request.json
@@ -2230,14 +2249,13 @@ if MP_WEBHOOK_URL:
             logger.error(f"Webhook error: {e}")
             return "Error", 500
 
-    # ==================== WEB TERMINAL ====================
     @webhook_app.route('/ping')
     def ping():
         return "OK", 200
 
     @webhook_app.route('/dashboard')
     def dashboard():
-        chat_id = "8355456581"  # Tu ID para pruebas
+        chat_id = "8355456581"
         try:
             return render_template('dashboard.html', chat_id=chat_id)
         except Exception as e:
@@ -2316,9 +2334,9 @@ if MP_WEBHOOK_URL:
             logger.error(f"Error updating copy: {e}")
             return jsonify({"error": str(e)}), 500
 
-def run_webhook():
-    port = int(os.environ.get("PORT", 5000))
-    webhook_app.run(host='0.0.0.0', port=port, debug=False)
+    def run_webhook():
+        port = int(os.getenv("PORT", 5000))
+        webhook_app.run(host='0.0.0.0', port=port, debug=False)
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
@@ -2328,14 +2346,14 @@ if __name__ == "__main__":
         subscribers[admin_id] = {
             "plan": "free",
             "deposit_level": 3,
-            "commission_rate": 0.002,
+            "commission_rate": 0.003,
             "insignia": "👑",
             "active": True,
             "start": datetime.now().isoformat(),
             "end": (datetime.now() + timedelta(days=365)).isoformat()
         }
         save_subscribers(subscribers)
-        logger.info("👑 Admin set to ELITE level (0.2% commission)")
+        logger.info("👑 Admin set to ELITE level (0.3% commission + token reward)")
 
     if MP_WEBHOOK_URL:
         threading.Thread(target=run_webhook, daemon=True).start()
@@ -2350,7 +2368,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("balance", balance))
     app.add_handler(CommandHandler("premium", premium))
-    app.add_handler(CommandHandler("pay", pay))
+    # app.add_handler(CommandHandler("pay", pay))  # DESACTIVADO
     app.add_handler(CommandHandler("plans", plans_command))
     app.add_handler(CommandHandler("id", id_command))
     app.add_handler(CommandHandler("whale", whale))
