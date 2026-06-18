@@ -2316,7 +2316,7 @@ if MP_WEBHOOK_URL:
             logger.error(f"Error updating copy: {e}")
             return jsonify({"error": str(e)}), 500
 
-    def run_webhook():
+def run_webhook():
     port = int(os.getenv("PORT", 5000))
     webhook_app.run(host='0.0.0.0', port=port, debug=False)
 
