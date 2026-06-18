@@ -3,113 +3,390 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CryptoArch Agent - Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>CryptoArch Agent · Terminal</title>
+    
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
-        * { font-family: 'Inter', sans-serif; }
-        body { background: #0A0C12; color: #e5e7eb; }
-        .glass-card {
-            background: rgba(15, 17, 25, 0.75);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(59, 130, 246, 0.2);
+        /* ===== RESET & BASE ===== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: #0A0B10;
+            color: #e0e0e0;
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
         }
-        .btn-primary {
-            background: linear-gradient(135deg, #3b82f6, #2563eb);
-            transition: all 0.2s;
+
+        /* ===== FONDO ANIMADO ===== */
+        .bg-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(0, 200, 255, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(138, 43, 226, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 40% 20%, rgba(0, 255, 200, 0.05) 0%, transparent 50%),
+                #0A0B10;
         }
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(59,130,246,0.4);
+
+        /* ===== CONTENEDOR PRINCIPAL ===== */
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
         }
-        .status-badge {
-            padding: 4px 12px;
-            border-radius: 9999px;
+
+        /* ===== HEADER ===== */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            background: rgba(10, 11, 16, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 200, 255, 0.2);
+            border-radius: 16px;
+            margin-bottom: 30px;
+            box-shadow: 0 0 30px rgba(0, 200, 255, 0.05);
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .logo-icon {
+            font-size: 28px;
+            color: #00e5ff;
+            text-shadow: 0 0 20px rgba(0, 229, 255, 0.3);
+        }
+        .logo-text {
+            font-family: 'Orbitron', monospace;
+            font-weight: 700;
+            font-size: 20px;
+            background: linear-gradient(135deg, #00e5ff, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .user-badge {
+            font-family: 'Orbitron', monospace;
             font-size: 12px;
-            font-weight: 600;
+            color: #00e5ff;
+            background: rgba(0, 229, 255, 0.1);
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid rgba(0, 229, 255, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .status-active { background: rgba(16,185,129,0.2); color: #6ee7b7; }
-        .status-inactive { background: rgba(239,68,68,0.2); color: #fca5a5; }
+        .user-badge i { font-size: 14px; }
+
+        /* ===== TARJETAS ===== */
+        .grid-cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 30px;
+        }
+        @media (max-width: 768px) { .grid-cards { grid-template-columns: 1fr; } }
+
+        .card {
+            background: rgba(15, 17, 26, 0.7);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(0, 200, 255, 0.15);
+            border-radius: 20px;
+            padding: 24px 28px;
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        .card::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(135deg, rgba(0, 200, 255, 0.2), rgba(168, 85, 247, 0.2));
+            border-radius: 20px;
+            z-index: -1;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        .card:hover::before { opacity: 1; }
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(0, 200, 255, 0.4);
+            box-shadow: 0 12px 48px rgba(0, 200, 255, 0.1);
+        }
+
+        .card-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 14px;
+            font-weight: 600;
+            color: #00e5ff;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .card-title i { font-size: 18px; }
+        .card-title .glow { text-shadow: 0 0 20px rgba(0, 229, 255, 0.3); }
+
+        /* ===== ESTADÍSTICAS ===== */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+        .stat-item {
+            text-align: center;
+            padding: 12px 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .stat-label {
+            font-size: 12px;
+            font-weight: 500;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .stat-value {
+            font-family: 'Orbitron', monospace;
+            font-size: 28px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+        .stat-value.blue { color: #00e5ff; text-shadow: 0 0 30px rgba(0, 229, 255, 0.2); }
+        .stat-value.green { color: #4ade80; text-shadow: 0 0 30px rgba(74, 222, 128, 0.2); }
+        .stat-value.yellow { color: #facc15; text-shadow: 0 0 30px rgba(250, 204, 21, 0.2); }
+
+        /* ===== MODO LEGENDARIO ===== */
+        .legendary-box {
+            margin-top: 16px;
+            padding: 14px 18px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            border-left: 3px solid #a855f7;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .legendary-label {
+            font-weight: 500;
+            color: #aaa;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .legendary-status {
+            font-family: 'Orbitron', monospace;
+            font-weight: 700;
+            color: #a855f7;
+            text-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+        }
+
+        /* ===== CONTROLES ===== */
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .control-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: 0.3s;
+        }
+        .control-item:hover { border-color: rgba(0, 200, 255, 0.2); }
+        .control-label {
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .control-label i { font-size: 16px; color: #00e5ff; }
+        .control-label span { font-size: 14px; }
+
+        /* ===== BOTÓN TOGGLE FUTURISTA ===== */
+        .toggle-btn {
+            font-family: 'Orbitron', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 6px 16px;
+            border-radius: 20px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .toggle-btn.active {
+            background: rgba(0, 229, 255, 0.15);
+            color: #00e5ff;
+            border: 1px solid rgba(0, 229, 255, 0.4);
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.1);
+        }
+        .toggle-btn.active:hover {
+            box-shadow: 0 0 40px rgba(0, 229, 255, 0.2);
+            transform: scale(1.02);
+        }
+        .toggle-btn.inactive {
+            background: rgba(255, 0, 0, 0.08);
+            color: #f87171;
+            border: 1px solid rgba(255, 0, 0, 0.2);
+        }
+        .toggle-btn.inactive:hover {
+            box-shadow: 0 0 30px rgba(255, 0, 0, 0.1);
+            transform: scale(1.02);
+        }
+
+        /* ===== TABLA ===== */
+        .table-wrap {
+            overflow-x: auto;
+            margin-top: 12px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th {
+            text-align: left;
+            padding: 12px 16px;
+            font-family: 'Orbitron', monospace;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            color: #ccc;
+        }
+        tr:hover td { background: rgba(0, 200, 255, 0.03); }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+            .header { flex-direction: column; gap: 12px; text-align: center; }
+            .logo-text { font-size: 16px; }
+        }
     </style>
 </head>
 <body>
-    <div class="container mx-auto px-4 py-8 max-w-6xl">
+    <!-- Fondo animado -->
+    <div class="bg-animation"></div>
+
+    <!-- Contenedor -->
+    <div class="container">
         <!-- Header -->
-        <div class="flex justify-between items-center mb-8">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-xl flex items-center justify-center text-white font-bold">CA</div>
-                <h1 class="text-2xl font-bold">CryptoArch Agent</h1>
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-microchip logo-icon"></i>
+                <span class="logo-text">CryptoArch Agent</span>
             </div>
-            <div class="text-sm text-gray-400">
-                <i class="fas fa-user-circle mr-2"></i>
+            <div class="user-badge">
+                <i class="fas fa-user-astronaut"></i>
                 <span id="chat-id-display">Cargando...</span>
             </div>
-        </div>
+        </header>
 
-        <!-- Grid principal -->
-        <div class="grid md:grid-cols-3 gap-6">
-            <!-- Tarjeta 1: Estadísticas -->
-            <div class="glass-card rounded-2xl p-6 md:col-span-2">
-                <h2 class="text-xl font-bold mb-4">📊 Estadísticas</h2>
-                <div class="grid grid-cols-3 gap-4">
-                    <div>
-                        <p class="text-gray-400 text-sm">Operaciones</p>
-                        <p class="text-2xl font-bold text-blue-400" id="total-trades">0</p>
+        <!-- Grid Principal -->
+        <div class="grid-cards">
+            <!-- Tarjeta Estadísticas -->
+            <div class="card">
+                <div class="card-title">
+                    <i class="fas fa-chart-pie glow"></i>
+                    <span class="glow">ESTADÍSTICAS DE GUERRA</span>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">Operaciones</div>
+                        <div class="stat-value blue" id="total-trades">0</div>
                     </div>
-                    <div>
-                        <p class="text-gray-400 text-sm">Win Rate</p>
-                        <p class="text-2xl font-bold text-emerald-400" id="win-rate">0%</p>
+                    <div class="stat-item">
+                        <div class="stat-label">Win Rate</div>
+                        <div class="stat-value green" id="win-rate">0%</div>
                     </div>
-                    <div>
-                        <p class="text-gray-400 text-sm">PnL</p>
-                        <p class="text-2xl font-bold text-yellow-400" id="pnl">$0.00</p>
+                    <div class="stat-item">
+                        <div class="stat-label">PnL</div>
+                        <div class="stat-value yellow" id="pnl">$0.00</div>
                     </div>
                 </div>
-                <div class="mt-4 p-3 bg-gray-800/50 rounded-xl">
-                    <p class="text-sm text-gray-400">🏆 Modo Legendario</p>
-                    <p class="text-lg font-bold text-purple-400" id="legendary-mode">🔒 Bloqueado</p>
-                </div>
-            </div>
-
-            <!-- Tarjeta 2: Configuración rápida -->
-            <div class="glass-card rounded-2xl p-6">
-                <h2 class="text-xl font-bold mb-4">⚡ Control rápido</h2>
-                <div class="space-y-4">
-                    <div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-sm">🎯 Sniper X</span>
-                            <button id="sniper-toggle" class="status-badge status-inactive">Inactivo</button>
-                        </div>
-                        <p class="text-xs text-gray-500 mt-1">Ejecución quirúrgica</p>
-                    </div>
-                    <div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-sm">🐋 Copy Trading</span>
-                            <button id="copy-toggle" class="status-badge status-inactive">Inactivo</button>
-                        </div>
-                        <p class="text-xs text-gray-500 mt-1">Copiar ballenas automáticamente</p>
-                    </div>
+                <div class="legendary-box">
+                    <span class="legendary-label">
+                        <i class="fas fa-crown" style="color:#a855f7;"></i> Modo Legendario
+                    </span>
+                    <span class="legendary-status" id="legendary-mode">🔒 Bloqueado</span>
                 </div>
             </div>
+
+            <!-- Tarjeta Controles -->
+            <div class="card">
+                <div class="card-title">
+                    <i class="fas fa-sliders-h glow"></i>
+                    <span class="glow">CONTROL DE ARMAS</span>
+                </div>
+                <div class="control-group">
+                    <div class="control-item">
+                        <span class="control-label">
+                            <i class="fas fa-crosshairs"></i>
+                            <span>Sniper X</span>
+                        </span>
+                        <button id="sniper-toggle" class="toggle-btn inactive">Inactivo</button>
+                    </div>
+                    <div class="control-item">
+                        <span class="control-label">
+                            <i class="fas fa-whale"></i>
+                            <span>Copy Trading</span>
+                        </span>
+                        <button id="copy-toggle" class="toggle-btn inactive">Inactivo</button>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <!-- Historial de operaciones -->
-        <div class="glass-card rounded-2xl p-6 mt-6">
-            <h2 class="text-xl font-bold mb-4">📋 Historial de operaciones</h2>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
+        <!-- Tarjeta Historial -->
+        <div class="card" style="margin-top: 20px;">
+            <div class="card-title">
+                <i class="fas fa-history glow"></i>
+                <span class="glow">HISTORIAL DE OPERACIONES</span>
+            </div>
+            <div class="table-wrap">
+                <table>
                     <thead>
-                        <tr class="text-gray-400 border-b border-gray-700">
-                            <th class="text-left py-2">Fecha</th>
-                            <th class="text-left py-2">Activo</th>
-                            <th class="text-left py-2">Tipo</th>
-                            <th class="text-left py-2">Cantidad</th>
-                            <th class="text-left py-2">Precio</th>
-                            <th class="text-left py-2">Resultado</th>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Activo</th>
+                            <th>Tipo</th>
+                            <th>Cantidad</th>
+                            <th>Precio</th>
+                            <th>Resultado</th>
                         </tr>
                     </thead>
                     <tbody id="trades-table">
-                        <tr><td colspan="6" class="text-center py-4 text-gray-400">No hay operaciones registradas</td></tr>
+                        <tr><td colspan="6" style="text-align:center; padding:20px; color:#666;">No hay operaciones registradas</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -117,7 +394,7 @@
     </div>
 
     <script>
-        const chatId = "8355456581";  // ID fijo para pruebas (tu ID)
+        const chatId = "8355456581";
 
         // ==================== CARGAR DATOS ====================
         async function loadStats() {
@@ -139,24 +416,22 @@
                 const res = await fetch(`/api/settings/${chatId}`);
                 const data = await res.json();
                 
-                // Actualizar Sniper X
                 const sniperBtn = document.getElementById('sniper-toggle');
                 if (data.sniper && data.sniper.active) {
                     sniperBtn.textContent = 'Activo';
-                    sniperBtn.className = 'status-badge status-active';
+                    sniperBtn.className = 'toggle-btn active';
                 } else {
                     sniperBtn.textContent = 'Inactivo';
-                    sniperBtn.className = 'status-badge status-inactive';
+                    sniperBtn.className = 'toggle-btn inactive';
                 }
 
-                // Actualizar Copy Trading
                 const copyBtn = document.getElementById('copy-toggle');
                 if (data.copy && data.copy.active) {
                     copyBtn.textContent = 'Activo';
-                    copyBtn.className = 'status-badge status-active';
+                    copyBtn.className = 'toggle-btn active';
                 } else {
                     copyBtn.textContent = 'Inactivo';
-                    copyBtn.className = 'status-badge status-inactive';
+                    copyBtn.className = 'toggle-btn inactive';
                 }
             } catch(e) {
                 console.error('Error loading settings:', e);
@@ -180,7 +455,7 @@
                 });
                 if (res.ok) {
                     this.textContent = newValue ? 'Activo' : 'Inactivo';
-                    this.className = newValue ? 'status-badge status-active' : 'status-badge status-inactive';
+                    this.className = newValue ? 'toggle-btn active' : 'toggle-btn inactive';
                 }
             } catch(e) {
                 console.error('Error toggling sniper:', e);
@@ -203,7 +478,7 @@
                 });
                 if (res.ok) {
                     this.textContent = newValue ? 'Activo' : 'Inactivo';
-                    this.className = newValue ? 'status-badge status-active' : 'status-badge status-inactive';
+                    this.className = newValue ? 'toggle-btn active' : 'toggle-btn inactive';
                 }
             } catch(e) {
                 console.error('Error toggling copy:', e);
@@ -213,6 +488,10 @@
         // ==================== INICIALIZAR ====================
         loadStats();
         loadSettings();
+
+        // Recargar cada 30 segundos
+        setInterval(loadStats, 30000);
+        setInterval(loadSettings, 30000);
     </script>
 </body>
 </html>
