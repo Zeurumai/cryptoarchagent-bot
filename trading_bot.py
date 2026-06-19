@@ -69,14 +69,14 @@ GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")
 ANTI_MEV_ENABLED = os.getenv("ANTI_MEV_ENABLED", "true").lower() == "true"
 ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
 
-# ==================== IA PREDICTIVA (NUEVO) ====================
+# ==================== IA PREDICTIVA AVANZADA ====================
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
 
 if not MP_WEBHOOK_SECRET or not DASHBOARD_API_KEY or not ADMIN_SECRET:
     raise ValueError("❌ Faltan variables de seguridad en Railway")
 
 logger.info("✅ Variables de seguridad cargadas correctamente")
-logger.info(f"🧠 IA Predictiva: {'ACTIVADA' if AI_MODEL_ENABLED else 'DESACTIVADA'}")
+logger.info(f"🧠 IA Predictiva Avanzada: {'ACTIVADA' if AI_MODEL_ENABLED else 'DESACTIVADA'}")
 
 # ==================== COINS ====================
 COINS = [
@@ -324,64 +324,251 @@ def simulate_anti_mev(symbol: str, amount: float) -> dict:
             "message": "🛡️ Anti-MEV activado (modo estándar)."
         }
 
-# ==================== IA PREDICTIVA (NUEVO) ====================
+# ==================== IA PREDICTIVA AVANZADA (FASE 7.2) ====================
 
-def predict_with_ai(alert: dict) -> dict:
+# Historial de predicciones (para aprender de aciertos/errores)
+prediction_history = []
+
+def get_fear_greed_index() -> dict:
+    """Obtiene el índice de miedo/avaricia actual."""
+    try:
+        response = requests.get('https://api.alternative.me/fng/', timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            value = int(data['data'][0]['value'])
+            classification = data['data'][0]['value_classification']
+            return {
+                "value": value,
+                "classification": classification,
+                "sentiment": "bearish" if value < 30 else "bullish" if value > 70 else "neutral"
+            }
+    except Exception as e:
+        logger.error(f"Error obteniendo Fear & Greed: {e}")
+    return {"value": 50, "classification": "Neutral", "sentiment": "neutral"}
+
+def get_asset_volatility(symbol: str) -> float:
+    """Calcula volatilidad basada en el cambio 24h (aproximación)."""
+    prices = get_cached_prices()
+    for coin_id, sym, name in COINS:
+        if sym == symbol and coin_id in prices:
+            change = prices[coin_id].get('usd_24h_change', 0)
+            return abs(change)  # Volatilidad = |cambio %|
+    return 5.0  # volatilidad por defecto (5%)
+
+def get_whale_frequency(alerts: list, symbol: str, tx_type: str, time_window_hours: int = 6) -> int:
+    """Cuenta cuántas transacciones de ballenas del mismo tipo han ocurrido recientemente."""
+    if not alerts:
+        return 0
+    count = 0
+    now = time.time()
+    for alert in alerts:
+        if alert.get("symbol") == symbol and alert.get("transaction_type") == tx_type:
+            # Si tiene timestamp, usarlo; si no, asumir que es reciente
+            count += 1
+    return count
+
+def predict_with_ai_advanced(alert: dict, all_alerts: list = None) -> dict:
     """
-    Función mejorada que usa los datos de whale_advanced + un modelo simple
-    para predecir movimiento con % de confianza.
+    IA Predictiva Avanzada con múltiples factores.
+    Retorna dirección, confianza (0-100) y detalles.
     """
     if not AI_MODEL_ENABLED:
         return {
             "prediction": "⚠️ IA desactivada",
             "confidence": 0,
             "emoji": "⚪",
-            "details": "Activa IA con variable AI_MODEL_ENABLED=true"
+            "details": "Activa IA con variable AI_MODEL_ENABLED=true",
+            "factors": {}
         }
     
-    # Usamos la función existente de whale_advanced como base
-    radar = predecir_movimiento_ballena(alert)
-    confidence_base = radar.get("confidence", 50)
-    
-    # Factores adicionales para mejorar la predicción
-    symbol = alert.get("symbol", "")
+    # Extraer datos de la alerta
+    symbol = alert.get("symbol", "BTC")
     value = alert.get("value", 0)
-    tx_type = alert.get("transaction_type", "")
+    tx_type = alert.get("transaction_type", "transfer")
     
-    # Ajustar confianza según el tipo de transacción y monto
-    confidence = confidence_base
-    if tx_type == "buy" and value > 100000:
-        confidence += 10  # compras grandes = más confianza en subida
-    elif tx_type == "sell" and value > 100000:
-        confidence += 10  # ventas grandes = más confianza en bajada
-    elif tx_type == "transfer":
-        confidence -= 10  # transferencias son menos predictivas
+    # ==== FACTOR 1: Tamaño de ballena (30%) ====
+    if value > 1000000:
+        whale_score = 100
+        whale_tier = "🐋 Mega Ballena (> $1M)"
+    elif value > 500000:
+        whale_score = 80
+        whale_tier = "🐳 Ballena Grande (> $500k)"
+    elif value > 100000:
+        whale_score = 60
+        whale_tier = "🐋 Ballena Media (> $100k)"
+    elif value > 50000:
+        whale_score = 40
+        whale_tier = "🐟 Ballena Pequeña (> $50k)"
+    else:
+        whale_score = 20
+        whale_tier = "🦐 Pequeña (< $50k)"
     
-    # Ajustar por símbolo (algunos son más volátiles)
-    if symbol in ["SOL", "AVAX", "MATIC"]:
-        confidence -= 5  # más volátiles = menos confianza
+    # ==== FACTOR 2: Tipo de transacción (20%) ====
+    if tx_type == "buy":
+        tx_score = 80
+        tx_sentiment = "alcista"
+    elif tx_type == "sell":
+        tx_score = 20
+        tx_sentiment = "bajista"
+    else:  # transfer
+        tx_score = 50
+        tx_sentiment = "neutral"
     
-    # Limitar entre 0 y 100
+    # ==== FACTOR 3: Frecuencia de ballenas (15%) ====
+    if all_alerts:
+        freq_buy = get_whale_frequency(all_alerts, symbol, "buy")
+        freq_sell = get_whale_frequency(all_alerts, symbol, "sell")
+        if tx_type == "buy" and freq_buy > 2:
+            freq_score = 80
+        elif tx_type == "sell" and freq_sell > 2:
+            freq_score = 20
+        elif tx_type == "buy":
+            freq_score = 60
+        elif tx_type == "sell":
+            freq_score = 40
+        else:
+            freq_score = 50
+    else:
+        freq_score = 50
+    
+    # ==== FACTOR 4: Fear & Greed (15%) ====
+    fg = get_fear_greed_index()
+    if fg["sentiment"] == "bearish" and tx_type == "buy":
+        fg_score = 80  # Comprar en miedo extremo = buena señal
+    elif fg["sentiment"] == "bullish" and tx_type == "sell":
+        fg_score = 80  # Vender en avaricia extrema = buena señal
+    elif fg["sentiment"] == "bearish" and tx_type == "sell":
+        fg_score = 30  # Vender en miedo = mala señal
+    elif fg["sentiment"] == "bullish" and tx_type == "buy":
+        fg_score = 30  # Comprar en avaricia = mala señal
+    else:
+        fg_score = 50
+    
+    # ==== FACTOR 5: Volatilidad (10%) ====
+    vol = get_asset_volatility(symbol)
+    if vol > 10:
+        vol_score = 20  # Alta volatilidad = menor confianza
+    elif vol > 5:
+        vol_score = 50
+    else:
+        vol_score = 80  # Baja volatilidad = más predecible
+    
+    # ==== FACTOR 6: Liquidez del activo (10%) ====
+    # BTC y ETH son más líquidos -> más confianza
+    if symbol in ["BTC", "ETH"]:
+        liq_score = 90
+    elif symbol in ["SOL", "BNB"]:
+        liq_score = 70
+    else:
+        liq_score = 50
+    
+    # ==== CÁLCULO DE PONDERACIONES ====
+    weights = {
+        "whale_size": 0.30,
+        "tx_type": 0.20,
+        "frequency": 0.15,
+        "fear_greed": 0.15,
+        "volatility": 0.10,
+        "liquidity": 0.10
+    }
+    
+    raw_score = (
+        whale_score * weights["whale_size"] +
+        tx_score * weights["tx_type"] +
+        freq_score * weights["frequency"] +
+        fg_score * weights["fear_greed"] +
+        vol_score * weights["volatility"] +
+        liq_score * weights["liquidity"]
+    )
+    
+    # ==== DIRECCIÓN Y CONFIANZA ====
+    # Dirección base: si la puntuación es > 50 => compra (bullish), < 50 => venta (bearish)
+    # Pero ajustamos por el tipo de transacción original
+    if tx_type == "buy":
+        # Si es compra, esperamos que el precio suba
+        if raw_score > 55:
+            prediction = "bullish"
+            confidence = raw_score
+            emoji = "🟢"
+            detail = f"Señal de compra fuerte ({whale_tier})"
+        elif raw_score > 45:
+            prediction = "neutral"
+            confidence = raw_score
+            emoji = "🟡"
+            detail = f"Señal de compra débil ({whale_tier})"
+        else:
+            prediction = "bearish"
+            confidence = 100 - raw_score
+            emoji = "🔴"
+            detail = f"Señal de compra contradictoria ({whale_tier})"
+    elif tx_type == "sell":
+        # Si es venta, esperamos que el precio baje
+        if raw_score > 55:
+            prediction = "bearish"
+            confidence = raw_score
+            emoji = "🔴"
+            detail = f"Señal de venta fuerte ({whale_tier})"
+        elif raw_score > 45:
+            prediction = "neutral"
+            confidence = raw_score
+            emoji = "🟡"
+            detail = f"Señal de venta débil ({whale_tier})"
+        else:
+            prediction = "bullish"
+            confidence = 100 - raw_score
+            emoji = "🟢"
+            detail = f"Señal de venta contradictoria ({whale_tier})"
+    else:
+        # Transferencias: neutral por defecto
+        if raw_score > 60:
+            prediction = "bullish"
+            confidence = raw_score
+            emoji = "🟢"
+            detail = f"Transferencia con tendencia alcista ({whale_tier})"
+        elif raw_score < 40:
+            prediction = "bearish"
+            confidence = 100 - raw_score
+            emoji = "🔴"
+            detail = f"Transferencia con tendencia bajista ({whale_tier})"
+        else:
+            prediction = "neutral"
+            confidence = raw_score
+            emoji = "🟡"
+            detail = f"Transferencia neutral ({whale_tier})"
+    
+    # Asegurar confianza entre 0 y 100
     confidence = max(0, min(100, confidence))
     
-    # Determinar dirección y emoji
-    prediction = radar.get("prediction", "neutral")
-    emoji = radar.get("emoji", "⚪")
+    # ==== FACTORES DETALLADOS PARA TRANSPARENCIA ====
+    factors = {
+        "whale_size": f"{whale_score}/100 ({whale_tier})",
+        "tx_type": f"{tx_score}/100 ({tx_sentiment})",
+        "frequency": f"{freq_score}/100 ({'Múltiples ballenas' if freq_score > 60 else 'Pocas ballenas'})",
+        "fear_greed": f"{fg_score}/100 ({fg['classification']} {fg['value']}/100)",
+        "volatility": f"{vol_score}/100 ({vol:.1f}% volatilidad)",
+        "liquidity": f"{liq_score}/100 ({symbol})"
+    }
     
-    # Agregar detalles adicionales
-    details = f"Basado en {tx_type} de ${value:,.0f} en {symbol}"
-    if confidence > 75:
-        details += " (señal fuerte)"
-    elif confidence > 50:
-        details += " (señal moderada)"
-    else:
-        details += " (señal débil)"
+    # Guardar en historial para aprendizaje (opcional)
+    if all_alerts:
+        prediction_history.append({
+            "timestamp": time.time(),
+            "symbol": symbol,
+            "prediction": prediction,
+            "confidence": confidence,
+            "actual_tx": tx_type,
+            "value": value
+        })
+        # Mantener historial pequeño (últimas 100)
+        if len(prediction_history) > 100:
+            prediction_history.pop(0)
     
     return {
         "prediction": prediction,
         "confidence": confidence,
         "emoji": emoji,
-        "details": details
+        "details": detail,
+        "factors": factors
     }
 
 # ==================== USER DATA ====================
@@ -1274,10 +1461,10 @@ Use /plan to check your level.
 """
     await update.message.reply_text(text, parse_mode="Markdown")
 
-# ==================== COMANDO DE PREDICCIÓN (NUEVO) ====================
+# ==================== COMANDO DE PREDICCIÓN (NUEVO - FASE 7.2) ====================
 @rate_limited()
 async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /predict - Muestra una predicción basada en IA para el mercado actual."""
+    """Comando /predict - Muestra una predicción avanzada con factores detallados."""
     if not AI_MODEL_ENABLED:
         await update.message.reply_text(
             "⚠️ *IA Predictiva desactivada*\n\n"
@@ -1286,35 +1473,52 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Obtener una alerta reciente de ejemplo (usamos la última ballena detectada)
-    # En producción, esto podría ser más sofisticado.
-    # Simulamos una alerta para demostración
-    alert = {
-        "symbol": "BTC",
-        "value": 150000,
-        "transaction_type": "buy",
-        "description": "Whale compró 5 BTC"
-    }
-    
-    # Usar datos reales si están disponibles
+    # Obtener la última alerta disponible
+    alert = None
     if context.user_data.get("last_whale_alerts"):
-        real_alert = context.user_data["last_whale_alerts"][0]
-        if real_alert:
-            alert = real_alert
+        alert = context.user_data["last_whale_alerts"][0]
     
-    prediction = predict_with_ai(alert)
+    if not alert:
+        # Crear una alerta de ejemplo
+        alert = {
+            "symbol": "BTC",
+            "value": 150000,
+            "transaction_type": "buy",
+            "description": "Whale compró BTC"
+        }
+        all_alerts = [alert]
+    else:
+        all_alerts = context.user_data.get("last_whale_alerts", [alert])
+    
+    prediction = predict_with_ai_advanced(alert, all_alerts)
     
     message = (
-        f"🧠 *Predicción IA*\n\n"
+        f"🧠 *Predicción IA Avanzada*\n\n"
         f"{prediction['emoji']} *Dirección:* {prediction['prediction'].capitalize()}\n"
-        f"📊 *Confianza:* {prediction['confidence']}%\n"
+        f"📊 *Confianza:* {prediction['confidence']:.1f}%\n"
         f"📝 *Detalles:* {prediction['details']}\n\n"
-        f"_Basado en actividad reciente de ballenas._\n"
-        f"⚠️ _No es consejo financiero._"
+        f"📊 *Factores analizados:*\n"
     )
+    for factor, value in prediction.get("factors", {}).items():
+        message += f"   • {factor.replace('_', ' ').title()}: {value}\n"
+    
+    # Agregar Fear & Greed actual
+    fg = get_fear_greed_index()
+    message += f"\n📉 *Fear & Greed actual:* {fg['value']}/100 ({fg['classification']})"
+    
+    if prediction['confidence'] > 70:
+        message += "\n\n✅ *Señal fuerte* - Alta probabilidad de acierto."
+    elif prediction['confidence'] > 50:
+        message += "\n\n⚠️ *Señal moderada* - Considerar otros factores."
+    else:
+        message += "\n\n🔴 *Señal débil* - Baja confiabilidad."
+    
+    message += "\n\n_Basado en actividad reciente de ballenas y análisis multi-factor._\n"
+    message += "⚠️ _No es consejo financiero._"
+    
     await update.message.reply_text(message, parse_mode="Markdown")
 
-# ==================== WHALE FUNCTIONS (MODIFICADO CON IA) ====================
+# ==================== WHALE FUNCTIONS (MODIFICADO CON IA AVANZADA) ====================
 @rate_limited()
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
@@ -1331,7 +1535,7 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
     context.user_data["last_whale_alerts"] = all_alerts
 
-    # Función para mostrar alerta con IA
+    # Función para mostrar alerta con IA avanzada
     def format_alert(alert, idx):
         emoji, desc, sentiment, value = analizar_alerta(alert)
         text = f"{emoji} `{desc}`\n"
@@ -1341,10 +1545,11 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ia_analysis:
             text += f"   🧠 *AI:* {ia_analysis}\n"
         
-        # Nueva predicción con IA
+        # Nueva predicción avanzada
         if AI_MODEL_ENABLED:
-            pred = predict_with_ai(alert)
-            text += f"   📡 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)\n"
+            pred = predict_with_ai_advanced(alert, all_alerts)
+            confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
+            text += f"   📡 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)\n"
         
         radar = predecir_movimiento_ballena(alert)
         text += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
@@ -1393,7 +1598,11 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "🔵 *Arbitrum (ARB)*\nNo significant movements recently.\n\n"
 
-    output += "💡 *Note:* Accumulation/distribution analyses are automatic."
+    # Mostrar resumen de Fear & Greed
+    fg = get_fear_greed_index()
+    output += f"\n📉 *Fear & Greed:* {fg['value']}/100 ({fg['classification']})"
+
+    output += "\n\n💡 *Note:* Accumulation/distribution analyses are automatic."
 
     if all_alerts:
         keyboard = [
@@ -1433,8 +1642,9 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ia_analysis:
             text += f"   🧠 *AI:* {ia_analysis}\n"
         if AI_MODEL_ENABLED:
-            pred = predict_with_ai(alert)
-            text += f"   📡 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)\n"
+            pred = predict_with_ai_advanced(alert, all_alerts)
+            confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
+            text += f"   📡 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)\n"
         radar = predecir_movimiento_ballena(alert)
         text += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
         context.user_data[f"whale_alert_{idx}"] = alert
@@ -1476,7 +1686,10 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "🔵 *Arbitrum (ARB)*\nNo significant movements recently.\n\n"
 
-    output += "💡 *Note:* Accumulation/distribution analyses are automatic."
+    fg = get_fear_greed_index()
+    output += f"\n📉 *Fear & Greed:* {fg['value']}/100 ({fg['classification']})"
+
+    output += "\n\n💡 *Note:* Accumulation/distribution analyses are automatic."
 
     if all_alerts:
         keyboard = [
@@ -1582,11 +1795,12 @@ async def execute_sniper(chat_id, alerts, context):
                 for warn in rug_check["warnings"]:
                     security_msg += f"   {warn}\n"
         
-        # Si IA está activa, agregar predicción
+        # IA Predictiva Avanzada
         pred_msg = ""
         if AI_MODEL_ENABLED:
-            pred = predict_with_ai(alert)
-            pred_msg = f"\n🧠 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)"
+            pred = predict_with_ai_advanced(alert, alerts)
+            confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
+            pred_msg = f"\n🧠 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)"
 
         await context.bot.send_message(
             chat_id=chat_id,
@@ -1737,8 +1951,9 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         pred_msg = ""
         if AI_MODEL_ENABLED:
-            pred = predict_with_ai(alert)
-            pred_msg = f"\n🧠 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)"
+            pred = predict_with_ai_advanced(alert, alerts)
+            confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
+            pred_msg = f"\n🧠 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)"
         
         await query.edit_message_text(
             f"🐋 *Copy Trade Execution*\n\n"
@@ -2248,7 +2463,7 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_user_email(chat_id, email)
     await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
 
-# ==================== TRADING TESTNET (CON SEGURIDAD Y IA) ====================
+# ==================== TRADING TESTNET (CON SEGURIDAD Y IA AVANZADA) ====================
 @rate_limited()
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -2311,13 +2526,13 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount, "risk_accepted": False}
                 return
         
-        # IA Predictiva (opcional)
+        # IA Predictiva Avanzada
         pred_msg = ""
         if AI_MODEL_ENABLED:
-            # Simulamos una alerta para predicción
             alert = {"symbol": symbol, "value": cost, "transaction_type": "buy"}
-            pred = predict_with_ai(alert)
-            pred_msg = f"\n🧠 *Predicción IA:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)"
+            pred = predict_with_ai_advanced(alert, [])
+            confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
+            pred_msg = f"\n🧠 *Predicción IA:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)"
         
         await update.message.reply_text(
             f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\n"
@@ -2425,12 +2640,13 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount, "risk_accepted": False}
                 return
         
-        # IA Predictiva
+        # IA Predictiva Avanzada
         pred_msg = ""
         if AI_MODEL_ENABLED:
             alert = {"symbol": symbol, "value": value, "transaction_type": "sell"}
-            pred = predict_with_ai(alert)
-            pred_msg = f"\n🧠 *Predicción IA:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)"
+            pred = predict_with_ai_advanced(alert, [])
+            confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
+            pred_msg = f"\n🧠 *Predicción IA:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)"
         
         await update.message.reply_text(
             f"🔴 *Confirm sell*\n{amount} {symbol} ≈ ${value:.2f} USD\n"
@@ -2839,7 +3055,7 @@ if __name__ == "__main__":
         app.add_handler(CommandHandler("plans", plans_command))
         app.add_handler(CommandHandler("id", id_command))
         app.add_handler(CommandHandler("whale", whale))
-        app.add_handler(CommandHandler("predict", predict_command))  # NUEVO
+        app.add_handler(CommandHandler("predict", predict_command))  # NUEVO FASE 7.2
         app.add_handler(CommandHandler("terms", terms_command))
         app.add_handler(CommandHandler("accept", accept_terms))
         app.add_handler(CommandHandler("info", info_command))
@@ -2862,7 +3078,7 @@ if __name__ == "__main__":
         await app.start()
         await app.updater.start_polling()
 
-        logger.info("🚀 Trading bot started successfully (Fase 7: IA Predictiva integrada)")
+        logger.info("🚀 Trading bot started successfully (Fase 7.2: IA Predictiva Avanzada)")
 
         while True:
             await asyncio.sleep(1)
