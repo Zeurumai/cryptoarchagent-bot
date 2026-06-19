@@ -11,9 +11,8 @@ import feedparser
 import re
 import hmac
 import hashlib
-import random
 from datetime import datetime, timedelta
-from flask import Flask, request, render_template, jsonify, send_from_directory
+from flask import Flask, request, render_template, jsonify
 from dotenv import load_dotenv
 import mercadopago
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -73,10 +72,39 @@ ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
 
 if not MP_WEBHOOK_SECRET or not DASHBOARD_API_KEY or not ADMIN_SECRET:
-    raise ValueError("❌ Faltan variables de seguridad en Railway")
+    raise ValueError("❌ Missing security variables in Railway")
 
-logger.info("✅ Variables de seguridad cargadas correctamente")
-logger.info(f"🧠 IA Predictiva Avanzada: {'ACTIVADA' if AI_MODEL_ENABLED else 'DESACTIVADA'}")
+logger.info("✅ Security variables loaded")
+logger.info(f"🧠 Advanced AI Predictor: {'ENABLED' if AI_MODEL_ENABLED else 'DISABLED'}")
+
+# ==================== BILINGUAL SUPPORT ====================
+USER_LANG = {}  # chat_id -> 'en' or 'es'
+
+TRANSLATIONS = {
+    'en': {
+        'welcome': "🤖 *CryptoArch Agent*\nChoose an option:",
+        'start_trial': "🧭 *You have 14 days FREE trial!*\n• Commission: 0.5%\n• 3 alerts limit\n\nUpgrade with /activate to unlock full benefits.",
+        'trial_expired': "⏰ *Your 14-day trial has expired!*\n\nTo continue trading with reduced commissions, you have two options:\n\n1️⃣ *Deposit on Binance* using our referral link:\n👉 {link}\n   • Deposit ≥ 50 USDT → Trader (0.4% comisión)\n   • Deposit ≥ 100 USDT → Pro (0.3% + premium)\n   • Deposit ≥ 500 USDT → Elite (0.3% + VIP + token reward)\n\n2️⃣ *Get $CARCH tokens* (coming soon) for Elite/Legendary benefits.\n\nChoose the option that best suits you! 🚀",
+        'lang_changed': "✅ Language changed to English.",
+        'plans': "📊 *Commission levels* (no subscriptions):\n\n• *Explorer*: 0.5% (free)\n• *Trader*: 0.4% (≥ 50 USDT deposited)\n• *Pro*: 0.3% (≥ 100 USDT or volume > $10k)\n• *Elite*: 0.3% + token reward ($CARCH holder)\n• *Legendary*: 0.3% + token reward (holder + volume + referrals)\n\n🪙 *Token $CARCH*: Elite and Legendary holders receive 0.05% of all bot commissions.\n\nUse /activate to check your level.",
+        'help': "📌 *Commands & functions*\n\n/start - Main menu\n/status - Market status\n/alerts - View/manage alerts\n/balance - Testnet balance\n/premium - Your premium status\n/plans - View commission levels\n/whale - Whale movements (free, with AI)\n/predict - AI prediction for current market\n/info - Detailed coin info (e.g. /info BTC)\n/news - Latest crypto news\n/buy - Buy on Testnet (e.g. /buy 0.001 BTCUSDT)\n/sell - Sell on Testnet (e.g. /sell 0.001 BTCUSDT)\n/activate - Activate your plan based on Binance balance\n/plan - Show your current level\n/copy - Configure copy trading (e.g. /copy 20 1.5 follow on)\n/rule - Auto trading rules (e.g. /rule add \"whale_buy_btc > 100\" buy 50 5 10)\n/snipe - Configure sniping (e.g. /snipe set 50 5 ethereum on)\n/sniper - Configure Sniper X execution (e.g. /sniper set 100 2 aggressive true on)\n/compare - Compare us with the competition\n/lang - Switch language (English/Spanish)\n\n*Commission levels:*\n🧭 Explorer (0.5% comisión) - 14 days free\n📊 Trader (0.4%) - Deposit ≥ 50 USDT\n⭐ Pro (0.3% + premium) - Deposit ≥ 100 USDT\n👑 Elite (0.3% + token reward) - $CARCH holder\n🏆 Legendary (0.3% + token reward) - Elite + volume + referrals\n\n🪙 *Token $CARCH*: Elite and Legendary holders receive 0.05% of all bot commissions.\n\n⚠️ *Legal*: Not a financial advisor. Use /terms for details."
+    },
+    'es': {
+        'welcome': "🤖 *CryptoArch Agent*\nElige una opción:",
+        'start_trial': "🧭 *¡Tienes 14 días de prueba GRATIS!*\n• Comisión: 0.5%\n• Límite de 3 alertas\n\nActualiza con /activate para desbloquear todos los beneficios.",
+        'trial_expired': "⏰ *¡Tu prueba de 14 días ha expirado!*\n\nPara continuar operando con comisiones reducidas, tienes dos opciones:\n\n1️⃣ *Deposita en Binance* usando nuestro enlace de referido:\n👉 {link}\n   • Depósito ≥ 50 USDT → Trader (0.4% comisión)\n   • Depósito ≥ 100 USDT → Pro (0.3% + premium)\n   • Depósito ≥ 500 USDT → Elite (0.3% + VIP + token reward)\n\n2️⃣ *Obtén tokens $CARCH* (próximamente) para beneficios Elite/Legendary.\n\n¡Elige la opción que mejor se adapte a ti! 🚀",
+        'lang_changed': "✅ Idioma cambiado a Español.",
+        'plans': "📊 *Niveles de comisión* (sin suscripciones):\n\n• *Explorer*: 0.5% (gratis)\n• *Trader*: 0.4% (≥ 50 USDT depositados)\n• *Pro*: 0.3% (≥ 100 USDT o volumen > $10k)\n• *Elite*: 0.3% + token reward (titular de $CARCH)\n• *Legendary*: 0.3% + token reward (titular + volumen + referidos)\n\n🪙 *Token $CARCH*: Los titulares Elite y Legendary reciben el 0.05% de todas las comisiones del bot.\n\nUsa /activate para ver tu nivel.",
+        'help': "📌 *Comandos y funciones*\n\n/start - Menú principal\n/status - Estado del mercado\n/alerts - Ver/gestionar alertas\n/balance - Saldo en Testnet\n/premium - Estado premium\n/plans - Ver niveles de comisión\n/whale - Movimientos de ballenas (gratis, con IA)\n/predict - Predicción IA para el mercado actual\n/info - Información detallada de una moneda (ej. /info BTC)\n/news - Últimas noticias cripto\n/buy - Comprar en Testnet (ej. /buy 0.001 BTCUSDT)\n/sell - Vender en Testnet (ej. /sell 0.001 BTCUSDT)\n/activate - Activar tu plan basado en saldo de Binance\n/plan - Mostrar tu nivel actual\n/copy - Configurar copy trading (ej. /copy 20 1.5 follow on)\n/rule - Reglas de trading automático (ej. /rule add \"whale_buy_btc > 100\" buy 50 5 10)\n/snipe - Configurar snipe (ej. /snipe set 50 5 ethereum on)\n/sniper - Configurar Sniper X (ej. /sniper set 100 2 aggressive true on)\n/compare - Compararnos con la competencia\n/lang - Cambiar idioma (Inglés/Español)\n\n*Niveles de comisión:*\n🧭 Explorer (0.5% comisión) - 14 días gratis\n📊 Trader (0.4%) - Depósito ≥ 50 USDT\n⭐ Pro (0.3% + premium) - Depósito ≥ 100 USDT\n👑 Elite (0.3% + token reward) - Titular de $CARCH\n🏆 Legendary (0.3% + token reward) - Elite + volumen + referidos\n\n🪙 *Token $CARCH*: Los titulares Elite y Legendary reciben el 0.05% de todas las comisiones del bot.\n\n⚠️ *Legal*: No es un asesor financiero. Usa /terms para más detalles."
+    }
+}
+
+def get_text(chat_id, key, **kwargs):
+    lang = USER_LANG.get(str(chat_id), 'en')
+    text = TRANSLATIONS.get(lang, TRANSLATIONS['en']).get(key, key)
+    if kwargs:
+        return text.format(**kwargs)
+    return text
 
 # ==================== COINS ====================
 COINS = [
@@ -145,11 +173,11 @@ ws_active = True
 async def update_prices_from_websocket():
     global PRICE_CACHE, ws_connection, ws_active, WS_ENABLED
     if not WS_ENABLED:
-        logger.info("WebSocket deshabilitado por configuración.")
+        logger.info("WebSocket disabled by configuration.")
         return
 
     exchange = WS_EXCHANGE
-    logger.info(f"🌐 Usando WebSocket de {exchange.upper()}")
+    logger.info(f"🌐 Using WebSocket from {exchange.upper()}")
 
     if exchange == "kraken":
         kraken_symbols = [EXCHANGE_SYMBOLS["kraken"][sym[1]] for sym in COINS if sym[1] in EXCHANGE_SYMBOLS["kraken"]]
@@ -162,11 +190,11 @@ async def update_prices_from_websocket():
         
         while ws_active and WS_ENABLED:
             try:
-                logger.info(f"🔌 Conectando a WebSocket de Kraken...")
+                logger.info(f"🔌 Connecting to Kraken WebSocket...")
                 async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as websocket:
                     ws_connection = websocket
                     await websocket.send(json.dumps(subscription_msg))
-                    logger.info("✅ WebSocket de Kraken conectado. Actualizando en tiempo real.")
+                    logger.info("✅ Kraken WebSocket connected. Updating in real-time.")
                     
                     async for message in websocket:
                         try:
@@ -194,9 +222,9 @@ async def update_prices_from_websocket():
                                         PRICE_CACHE["data"][coin_id]["usd_24h_change"] = change
                                         PRICE_CACHE["last_update"] = time.time()
                         except Exception as e:
-                            logger.error(f"Error procesando mensaje WS Kraken: {e}")
+                            logger.error(f"Error processing Kraken WS message: {e}")
             except Exception as e:
-                logger.error(f"❌ WebSocket Kraken desconectado: {e}. Reintentando en 10s...")
+                logger.error(f"❌ Kraken WebSocket disconnected: {e}. Retrying in 10s...")
                 await asyncio.sleep(10)
     else:
         # Binance fallback
@@ -205,10 +233,10 @@ async def update_prices_from_websocket():
         
         while ws_active and WS_ENABLED:
             try:
-                logger.info(f"🔌 Conectando a WebSocket de Binance...")
+                logger.info(f"🔌 Connecting to Binance WebSocket...")
                 async with websockets.connect(stream_url, ping_interval=20, ping_timeout=10) as websocket:
                     ws_connection = websocket
-                    logger.info("✅ WebSocket de Binance conectado.")
+                    logger.info("✅ Binance WebSocket connected.")
                     
                     async for message in websocket:
                         try:
@@ -230,9 +258,9 @@ async def update_prices_from_websocket():
                                     PRICE_CACHE["data"][coin_id]["usd_24h_change"] = change
                                     PRICE_CACHE["last_update"] = time.time()
                         except Exception as e:
-                            logger.error(f"Error procesando mensaje WS Binance: {e}")
+                            logger.error(f"Error processing Binance WS message: {e}")
             except Exception as e:
-                logger.error(f"❌ WebSocket Binance desconectado: {e}. Reintentando en 10s...")
+                logger.error(f"❌ Binance WebSocket disconnected: {e}. Retrying in 10s...")
                 await asyncio.sleep(10)
 
 # ==================== SEGURIDAD: ANTI-MEV Y ANTI-RUG ====================
@@ -246,7 +274,7 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
             "liquidity_locked": True,
             "owner_renounced": False,
             "risk_score": 0,
-            "warnings": ["⚠️ Anti-Rug desactivado o sin API key"]
+            "warnings": ["⚠️ Anti-Rug disabled or no API key"]
         }
     
     try:
@@ -254,12 +282,12 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
         headers = {"X-API-Key": GOPLUS_API_KEY} if GOPLUS_API_KEY else {}
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200:
-            logger.error(f"Error en GoPlusLabs: {response.status_code}")
-            return {"risk_score": 0, "warnings": ["⚠️ No se pudo verificar el contrato"]}
+            logger.error(f"GoPlusLabs error: {response.status_code}")
+            return {"risk_score": 0, "warnings": ["⚠️ Could not verify contract"]}
         
         data = response.json()
         if data.get("code") != 1:
-            return {"risk_score": 0, "warnings": ["⚠️ Error en la verificación"]}
+            return {"risk_score": 0, "warnings": ["⚠️ Verification error"]}
         
         result = data.get("result", {})
         token_data = result.get(contract_address.lower(), {})
@@ -306,7 +334,7 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
             "warnings": warnings
         }
     except Exception as e:
-        logger.error(f"Error en check_token_security: {e}")
+        logger.error(f"check_token_security error: {e}")
         return {"risk_score": 0, "warnings": ["⚠️ Error verifying token"]}
 
 def simulate_anti_mev(symbol: str, amount: float) -> dict:
@@ -324,7 +352,7 @@ def simulate_anti_mev(symbol: str, amount: float) -> dict:
             "message": "🛡️ Anti-MEV activated (standard mode)."
         }
 
-# ==================== IA PREDICTIVA AVANZADA (FASE 7.2) ====================
+# ==================== IA PREDICTIVA AVANZADA ====================
 
 prediction_history = []
 
@@ -356,7 +384,6 @@ def get_whale_frequency(alerts: list, symbol: str, tx_type: str, time_window_hou
     if not alerts:
         return 0
     count = 0
-    now = time.time()
     for alert in alerts:
         if alert.get("symbol") == symbol and alert.get("transaction_type") == tx_type:
             count += 1
@@ -785,6 +812,7 @@ def has_accepted_terms(chat_id):
     return str(chat_id) in terms and terms[str(chat_id)] == True
 
 async def terms_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
     text = """
 ⚠️ *IMPORTANT LEGAL DISCLAIMER*
 
@@ -955,15 +983,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     level = get_user_level(chat_id)
     if level == -1:
         await update.message.reply_text(
-            "⏰ *Your 14-day trial has expired!*\n\n"
-            "To continue trading with reduced commissions, you have two options:\n\n"
-            "1️⃣ *Deposit on Binance* using our referral link:\n"
-            f"👉 {BINANCE_REFERRAL_LINK}\n"
-            "   • Deposit ≥ 50 USDT → Trader (0.4% comisión)\n"
-            "   • Deposit ≥ 100 USDT → Pro (0.3% + premium)\n"
-            "   • Deposit ≥ 500 USDT → Elite (0.3% + VIP + token reward)\n\n"
-            "2️⃣ *Get $CARCH tokens* (coming soon) for Elite/Legendary benefits.\n\n"
-            "Choose the option that best suits you! 🚀",
+            get_text(chat_id, 'trial_expired', link=BINANCE_REFERRAL_LINK),
             parse_mode="Markdown"
         )
         return
@@ -973,10 +993,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not data.get("trial_start") and level == 0:
         start_trial(chat_id)
         await update.message.reply_text(
-            "🧭 *You have 14 days FREE trial!*\n"
-            "• Commission: 0.5%\n"
-            "• 3 alerts limit\n\n"
-            "Upgrade with /activate to unlock full benefits.",
+            get_text(chat_id, 'start_trial'),
             parse_mode="Markdown"
         )
 
@@ -1001,10 +1018,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⚔️ Compare", callback_data="compare")],
         [InlineKeyboardButton("❓ Help", callback_data="help")]
     ]
-    await update.message.reply_text("🤖 *CryptoArch Agent*\nChoose an option:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text(
+        get_text(chat_id, 'welcome'),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start(update, context)
+
+# ==================== LANGUAGE COMMAND ====================
+@rate_limited()
+async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    args = context.args
+    if args and args[0].lower() in ['es', 'spanish']:
+        USER_LANG[chat_id] = 'es'
+        await update.message.reply_text("✅ Idioma cambiado a Español.")
+    elif args and args[0].lower() in ['en', 'english']:
+        USER_LANG[chat_id] = 'en'
+        await update.message.reply_text("✅ Language changed to English.")
+    else:
+        current = USER_LANG.get(chat_id, 'en')
+        await update.message.reply_text(
+            f"🌐 Current language: {current.upper()}\n\n"
+            f"To change, use:\n"
+            f"/lang en  -> English\n"
+            f"/lang es  -> Español"
+        )
 
 # ==================== CALLBACK HANDLER ====================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1048,7 +1089,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"⏰ Enter time for {report_type.upper()} report (HH:MM, e.g. 08:30)")
         context.user_data["awaiting_report_time"] = True
     elif data == "help":
-        await help_menu(query)
+        await help_menu(query, chat_id)
     elif data == "balance":
         try:
             engine = TradingEngine(testnet=True)
@@ -1083,20 +1124,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "whale":
         await whale_callback(update, context)
     elif data == "plans":
-        text = """
-📊 *Commission levels* (no subscriptions):
-
-• *Explorer*: 0.5% (free)
-• *Trader*: 0.4% (≥ 50 USDT deposited)
-• *Pro*: 0.3% (≥ 100 USDT or volume > $10k)
-• *Elite*: 0.3% + token reward ($CARCH holder)
-• *Legendary*: 0.3% + token reward (holder + volume + referrals)
-
-🪙 *Token $CARCH*: Elite and Legendary holders receive 0.05% of all bot commissions.
-
-Use /activate to check your level.
-"""
-        await query.edit_message_text(text, parse_mode="Markdown")
+        await query.edit_message_text(get_text(chat_id, 'plans'), parse_mode="Markdown")
     elif data == "news":
         await query.edit_message_text("📰 *Fetching latest news...*", parse_mode="Markdown")
         sources = [
@@ -1364,42 +1392,8 @@ async def reports_menu(query, chat_id):
     ]
     await query.edit_message_text("📅 *Auto report settings*\nChoose which report to schedule:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-async def help_menu(query):
-    message = """
-📌 *Commands & functions*
-
-/start - Main menu
-/status - Market status
-/alerts - View/manage alerts
-/balance - Testnet balance
-/premium - Your premium status
-/plans - View commission levels
-/whale - Whale movements (free, with AI)
-/predict - AI prediction for current market
-/info - Detailed coin info (e.g. /info BTC)
-/news - Latest crypto news
-/buy - Buy on Testnet (e.g. /buy 0.001 BTCUSDT)
-/sell - Sell on Testnet (e.g. /sell 0.001 BTCUSDT)
-/activate - Activate your plan based on Binance balance
-/plan - Show your current level
-/copy - Configure copy trading (e.g. /copy 20 1.5 follow on)
-/rule - Auto trading rules (e.g. /rule add "whale_buy_btc > 100" buy 50 5 10)
-/snipe - Configure sniping (e.g. /snipe set 50 5 ethereum on)
-/sniper - Configure Sniper X execution (e.g. /sniper set 100 2 aggressive true on)
-/compare - Compare us with the competition
-
-*Commission levels:*
-🧭 Explorer (0.5% comisión) - 14 days free
-📊 Trader (0.4%) - Deposit ≥ 50 USDT
-⭐ Pro (0.3% + premium) - Deposit ≥ 100 USDT
-👑 Elite (0.3% + token reward) - $CARCH holder
-🏆 Legendary (0.3% + token reward) - Elite + volume + referrals
-
-🪙 *Token $CARCH*: Elite and Legendary holders receive 0.05% of all bot commissions.
-
-⚠️ *Legal*: Not a financial advisor. Use /terms for details.
-"""
-    await query.edit_message_text(message, parse_mode="Markdown")
+async def help_menu(query, chat_id):
+    await query.edit_message_text(get_text(chat_id, 'help'), parse_mode="Markdown")
 
 # ==================== COMPARE ====================
 @rate_limited()
@@ -1442,6 +1436,7 @@ Use /plan to check your level.
 # ==================== COMANDO DE PREDICCIÓN ====================
 @rate_limited()
 async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
     if not AI_MODEL_ENABLED:
         await update.message.reply_text(
             "⚠️ *AI Predictor disabled*\n\n"
@@ -1495,6 +1490,7 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================== WHALE FUNCTIONS ====================
 @rate_limited()
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
 
     btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
@@ -2333,20 +2329,8 @@ async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @rate_limited()
 async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = """
-📊 *Commission levels* (no subscriptions):
-
-• *Explorer*: 0.5% (free)
-• *Trader*: 0.4% (≥ 50 USDT deposited)
-• *Pro*: 0.3% (≥ 100 USDT or volume > $10k)
-• *Elite*: 0.3% + token reward ($CARCH holder)
-• *Legendary*: 0.3% + token reward (holder + volume + referrals)
-
-🪙 *Token $CARCH*: Elite and Legendary holders receive 0.05% of all bot commissions.
-
-Use /activate to check your level.
-"""
-    await update.message.reply_text(text, parse_mode="Markdown")
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(get_text(chat_id, 'plans'), parse_mode="Markdown")
 
 @rate_limited()
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2428,7 +2412,7 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_user_email(chat_id, email)
     await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
 
-# ==================== TRADING TESTNET (CON SEGURIDAD Y IA) ====================
+# ==================== TRADING TESTNET ====================
 @rate_limited()
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -2468,7 +2452,6 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         fee = cost * commission if commission else 0
         token_amount = fee * token_reward if token_reward > 0 else 0
         
-        # Anti-Rug
         security_msg = ""
         if ANTI_RUG_ENABLED and GOPLUS_API_KEY:
             contract = "0x0000000000000000000000000000000000000000"
@@ -2491,7 +2474,6 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount, "risk_accepted": False}
                 return
         
-        # IA Predictiva
         pred_msg = ""
         if AI_MODEL_ENABLED:
             alert = {"symbol": symbol, "value": cost, "transaction_type": "buy"}
@@ -2605,7 +2587,6 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount, "risk_accepted": False}
                 return
         
-        # IA Predictiva
         pred_msg = ""
         if AI_MODEL_ENABLED:
             alert = {"symbol": symbol, "value": value, "transaction_type": "sell"}
@@ -2846,161 +2827,195 @@ async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in force_premium: {e}")
         await update.message.reply_text("❌ Internal error.")
 
-# ==================== WEB TERMINAL (FASE 8) - NUEVAS RUTAS Y LÓGICA ====================
-# Historial de operaciones (simulación)
-trade_history = []
-def add_trade_to_history(symbol, action, amount, price, pnl=None):
-    trade_history.append({
-        "timestamp": datetime.now().isoformat(),
-        "symbol": symbol,
-        "action": action,
-        "amount": amount,
-        "price": price,
-        "pnl": pnl if pnl is not None else 0.0
-    })
-    if len(trade_history) > 100:
-        trade_history.pop(0)
+# ==================== WEBHOOK + WEB TERMINAL (FASE 8) ====================
+# Definimos webhook_app fuera del condicional para que siempre exista
+webhook_app = Flask(__name__, template_folder='templates')
 
-if MP_WEBHOOK_URL:
-    # (ya tenemos webhook_app definido arriba)
-    pass
+def require_api_key(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        provided_key = request.headers.get('X-API-Key')
+        if not provided_key or provided_key != DASHBOARD_API_KEY:
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
-# Ampliamos rutas del dashboard
-if MP_WEBHOOK_URL:
-    @webhook_app.route('/dashboard')
-    def dashboard():
-        return render_template('dashboard.html')
+# Webhook route (always defined, but only used if MP_WEBHOOK_URL is set)
+@webhook_app.route('/webhook', methods=['POST'])
+def webhook():
+    if not MP_WEBHOOK_URL:
+        return "Webhook disabled", 404
+    x_signature = request.headers.get('x-signature')
+    x_request_id = request.headers.get('x-request-id')
+    
+    if not x_signature or not x_request_id:
+        logger.warning("Webhook without signature")
+        return "Missing signature", 401
+    
+    raw_data = request.get_data()
+    secret = MP_WEBHOOK_SECRET.encode('utf-8')
+    computed = hmac.new(secret, raw_data, hashlib.sha256).hexdigest()
+    
+    if not hmac.compare_digest(computed, x_signature):
+        logger.warning("Invalid webhook signature")
+        return "Invalid signature", 401
+    
+    try:
+        data = request.json
+        logger.info(f"📩 Authenticated webhook: {data}")
+        if data.get("type") == "payment":
+            payment_id = data["data"]["id"]
+            sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
+            payment_response = sdk.payment().get(payment_id)
+            payment_data = payment_response["response"]
+            status = payment_data.get("status")
+            ext = payment_data.get("external_reference")
+            if status == "approved" and ext and ":" in ext:
+                chat_id_str, plan_key = ext.split(":")
+                activate_premium(int(chat_id_str), plan_key)
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return "Internal error", 500
 
-    @webhook_app.route('/api/market_data')
-    @require_api_key
-    def market_data():
-        """Devuelve datos de mercado en tiempo real (precios, cambios, Fear & Greed)."""
-        prices = get_all_prices()
-        if not prices:
-            return jsonify({"error": "No market data"}), 500
-        fg = get_fear_greed_index()
-        
-        # Preparar datos para gráficos
-        market = {}
-        for coin_id, symbol, name in COINS:
-            if coin_id in prices:
-                data = prices[coin_id]
-                market[symbol] = {
-                    "price": data.get("usd", 0),
-                    "change_24h": data.get("usd_24h_change", 0),
-                    "volume_24h": data.get("usd_24h_vol", 0),  # no siempre disponible
-                }
-        
-        # Histórico para gráficos (simulado)
-        history = []
-        for i in range(30):
-            history.append({
-                "time": (datetime.now() - timedelta(minutes=i*5)).isoformat(),
-                "BTC": 60000 + (i * 100) + (i * 0.5)  # simulación simple
-            })
-        
-        return jsonify({
-            "market": market,
-            "fear_greed": fg,
-            "history": history,
-            "timestamp": time.time()
+@webhook_app.route('/ping')
+def ping():
+    return "OK", 200
+
+@webhook_app.route('/dashboard')
+def dashboard():
+    return render_template('dashboard.html', DASHBOARD_API_KEY=DASHBOARD_API_KEY)
+
+# API routes for frontend
+@webhook_app.route('/api/market_data')
+@require_api_key
+def market_data():
+    prices = get_all_prices()
+    if not prices:
+        return jsonify({"error": "No market data"}), 500
+    fg = get_fear_greed_index()
+    market = {}
+    for coin_id, symbol, name in COINS:
+        if coin_id in prices:
+            data = prices[coin_id]
+            market[symbol] = {
+                "price": data.get("usd", 0),
+                "change_24h": data.get("usd_24h_change", 0),
+                "volume_24h": data.get("usd_24h_vol", 0),
+            }
+    history = []
+    for i in range(30):
+        history.append({
+            "time": (datetime.now() - timedelta(minutes=i*5)).isoformat(),
+            "BTC": 60000 + (i * 100) + (i * 0.5)  # simulated
         })
+    return jsonify({
+        "market": market,
+        "fear_greed": fg,
+        "history": history,
+        "timestamp": time.time()
+    })
 
-    @webhook_app.route('/api/trade_history')
-    @require_api_key
-    def trade_history_api():
-        """Devuelve historial de operaciones."""
-        return jsonify(trade_history)
+@webhook_app.route('/api/trade_history')
+@require_api_key
+def trade_history_api():
+    return jsonify(trade_history)
 
-    @webhook_app.route('/api/settings/<chat_id>')
-    @require_api_key
-    def get_settings_api(chat_id):
-        if not supabase:
-            return jsonify({"error": "Database not connected"}), 500
-        try:
-            sniper = supabase.table("sniper_settings").select("*").eq("chat_id", chat_id).execute()
-            sniper_data = sniper.data[0] if sniper.data else {}
-            copy = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
-            copy_data = copy.data[0] if copy.data else {}
-            rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
-            rules_data = rules.data if rules.data else []
-            return jsonify({
-                "sniper": sniper_data,
-                "copy": copy_data,
-                "rules": rules_data
-            })
-        except Exception as e:
-            logger.error(f"Error getting settings: {e}")
-            return jsonify({"error": "Internal error"}), 500
+@webhook_app.route('/api/settings/<chat_id>')
+@require_api_key
+def get_settings_api(chat_id):
+    if not supabase:
+        return jsonify({"error": "Database not connected"}), 500
+    try:
+        sniper = supabase.table("sniper_settings").select("*").eq("chat_id", chat_id).execute()
+        sniper_data = sniper.data[0] if sniper.data else {}
+        copy = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
+        copy_data = copy.data[0] if copy.data else {}
+        rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
+        rules_data = rules.data if rules.data else []
+        return jsonify({
+            "sniper": sniper_data,
+            "copy": copy_data,
+            "rules": rules_data
+        })
+    except Exception as e:
+        logger.error(f"Error getting settings: {e}")
+        return jsonify({"error": "Internal error"}), 500
 
-    @webhook_app.route('/api/update_sniper', methods=['POST'])
-    @require_api_key
-    def update_sniper_api():
-        if not supabase:
-            return jsonify({"error": "Database not connected"}), 500
-        try:
-            data = request.json
-            chat_id = data.get("chat_id")
-            field = data.get("field")
-            value = data.get("value")
-            if not chat_id or not field:
-                return jsonify({"error": "Missing parameters"}), 400
-            supabase.table("sniper_settings").update({field: value}).eq("chat_id", chat_id).execute()
-            return jsonify({"success": True})
-        except Exception as e:
-            logger.error(f"Error updating sniper: {e}")
-            return jsonify({"error": "Internal error"}), 500
+@webhook_app.route('/api/update_sniper', methods=['POST'])
+@require_api_key
+def update_sniper_api():
+    if not supabase:
+        return jsonify({"error": "Database not connected"}), 500
+    try:
+        data = request.json
+        chat_id = data.get("chat_id")
+        field = data.get("field")
+        value = data.get("value")
+        if not chat_id or not field:
+            return jsonify({"error": "Missing parameters"}), 400
+        supabase.table("sniper_settings").update({field: value}).eq("chat_id", chat_id).execute()
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Error updating sniper: {e}")
+        return jsonify({"error": "Internal error"}), 500
 
-    @webhook_app.route('/api/update_copy', methods=['POST'])
-    @require_api_key
-    def update_copy_api():
-        if not supabase:
-            return jsonify({"error": "Database not connected"}), 500
-        try:
-            data = request.json
-            chat_id = data.get("chat_id")
-            field = data.get("field")
-            value = data.get("value")
-            if not chat_id or not field:
-                return jsonify({"error": "Missing parameters"}), 400
-            supabase.table("copy_settings").update({field: value}).eq("chat_id", chat_id).execute()
-            return jsonify({"success": True})
-        except Exception as e:
-            logger.error(f"Error updating copy: {e}")
-            return jsonify({"error": "Internal error"}), 500
+@webhook_app.route('/api/update_copy', methods=['POST'])
+@require_api_key
+def update_copy_api():
+    if not supabase:
+        return jsonify({"error": "Database not connected"}), 500
+    try:
+        data = request.json
+        chat_id = data.get("chat_id")
+        field = data.get("field")
+        value = data.get("value")
+        if not chat_id or not field:
+            return jsonify({"error": "Missing parameters"}), 400
+        supabase.table("copy_settings").update({field: value}).eq("chat_id", chat_id).execute()
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Error updating copy: {e}")
+        return jsonify({"error": "Internal error"}), 500
 
-    @webhook_app.route('/api/toggle_rule', methods=['POST'])
-    @require_api_key
-    def toggle_rule_api():
-        if not supabase:
-            return jsonify({"error": "Database not connected"}), 500
-        try:
-            data = request.json
-            rule_id = data.get("rule_id")
-            active = data.get("active")
-            if not rule_id:
-                return jsonify({"error": "Missing rule_id"}), 400
-            supabase.table("rules").update({"active": active}).eq("id", rule_id).execute()
-            return jsonify({"success": True})
-        except Exception as e:
-            logger.error(f"Error toggling rule: {e}")
-            return jsonify({"error": "Internal error"}), 500
+@webhook_app.route('/api/toggle_rule', methods=['POST'])
+@require_api_key
+def toggle_rule_api():
+    if not supabase:
+        return jsonify({"error": "Database not connected"}), 500
+    try:
+        data = request.json
+        rule_id = data.get("rule_id")
+        active = data.get("active")
+        if not rule_id:
+            return jsonify({"error": "Missing rule_id"}), 400
+        supabase.table("rules").update({"active": active}).eq("id", rule_id).execute()
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Error toggling rule: {e}")
+        return jsonify({"error": "Internal error"}), 500
 
-    @webhook_app.route('/api/delete_rule', methods=['POST'])
-    @require_api_key
-    def delete_rule_api():
-        if not supabase:
-            return jsonify({"error": "Database not connected"}), 500
-        try:
-            data = request.json
-            rule_id = data.get("rule_id")
-            if not rule_id:
-                return jsonify({"error": "Missing rule_id"}), 400
-            supabase.table("rules").delete().eq("id", rule_id).execute()
-            return jsonify({"success": True})
-        except Exception as e:
-            logger.error(f"Error deleting rule: {e}")
-            return jsonify({"error": "Internal error"}), 500
+@webhook_app.route('/api/delete_rule', methods=['POST'])
+@require_api_key
+def delete_rule_api():
+    if not supabase:
+        return jsonify({"error": "Database not connected"}), 500
+    try:
+        data = request.json
+        rule_id = data.get("rule_id")
+        if not rule_id:
+            return jsonify({"error": "Missing rule_id"}), 400
+        supabase.table("rules").delete().eq("id", rule_id).execute()
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Error deleting rule: {e}")
+        return jsonify({"error": "Internal error"}), 500
+
+def run_webhook():
+    if not MP_WEBHOOK_URL:
+        return
+    port = int(os.getenv("PORT", 5000))
+    webhook_app.run(host='0.0.0.0', port=port, debug=False)
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
@@ -3013,7 +3028,7 @@ if __name__ == "__main__":
         threading.Thread(target=run_webhook, daemon=True).start()
         logger.info("🔄 Webhook server started on port 5000 (or PORT env)")
     else:
-        logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started.")
+        logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started. Dashboard still available.")
 
     reschedule_reports()
 
@@ -3035,6 +3050,7 @@ if __name__ == "__main__":
         app.add_handler(CommandHandler("id", id_command))
         app.add_handler(CommandHandler("whale", whale))
         app.add_handler(CommandHandler("predict", predict_command))
+        app.add_handler(CommandHandler("lang", lang_command))
         app.add_handler(CommandHandler("terms", terms_command))
         app.add_handler(CommandHandler("accept", accept_terms))
         app.add_handler(CommandHandler("info", info_command))
@@ -3057,7 +3073,7 @@ if __name__ == "__main__":
         await app.start()
         await app.updater.start_polling()
 
-        logger.info("🚀 Trading bot started successfully (Fase 8: Web Terminal + AI Advanced)")
+        logger.info("🚀 Trading bot started successfully (Fase 8: Web Terminal + AI Advanced + Bilingual)")
 
         while True:
             await asyncio.sleep(1)
