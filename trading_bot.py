@@ -2650,4 +2650,168 @@ if MP_WEBHOOK_URL:
             if data.get("type") == "payment":
                 payment_id = data["data"]["id"]
                 sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-                payment_response = sdk.payment().
+                payment_response = sdk.payment().get(payment_id)
+                payment_data = payment_response["response"]
+                status = payment_data.get("status")
+                ext = payment_data.get("external_reference")
+                if status == "approved" and ext and ":" in ext:
+                    chat_id_str, plan_key = ext.split(":")
+                    activate_premium(int(chat_id_str), plan_key)
+            return "OK", 200
+        except Exception as e:
+            logger.error(f"Webhook error: {e}")
+            return "Error interno", 500
+
+    @webhook_app.route('/ping')
+    def ping():
+        return "OK", 200
+
+    @webhook_app.route('/dashboard')
+    def dashboard():
+        chat_id = "8355456581"
+        try:
+            return render_template('dashboard.html', chat_id=chat_id)
+        except Exception as e:
+            logger.error(f"Error loading dashboard: {e}")
+            return f"Error loading dashboard: {e}", 500
+
+    @webhook_app.route('/api/stats/<chat_id>')
+    @require_api_key
+    def get_stats(chat_id):
+        if not supabase:
+            return jsonify({"error": "Database not connected"}), 500
+        try:
+            stats = supabase.table("user_stats").select("*").eq("chat_id", chat_id).execute()
+            if not stats.data:
+                default_stats = {
+                    "chat_id": chat_id,
+                    "total_trades": 0,
+                    "win_rate": 0.0,
+                    "pnl": 0.0,
+                    "legendary_mode": False
+                }
+                supabase.table("user_stats").insert(default_stats).execute()
+                return jsonify(default_stats)
+            return jsonify(stats.data[0])
+        except Exception as e:
+            logger.error(f"Error getting stats: {e}")
+            return jsonify({"error": "Error interno"}), 500
+
+    @webhook_app.route('/api/settings/<chat_id>')
+    @require_api_key
+    def get_settings(chat_id):
+        if not supabase:
+            return jsonify({"error": "Database not connected"}), 500
+        try:
+            sniper = supabase.table("sniper_settings").select("*").eq("chat_id", chat_id).execute()
+            sniper_data = sniper.data[0] if sniper.data else {}
+            copy = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
+            copy_data = copy.data[0] if copy.data else {}
+            return jsonify({
+                "sniper": sniper_data,
+                "copy": copy_data
+            })
+        except Exception as e:
+            logger.error(f"Error getting settings: {e}")
+            return jsonify({"error": "Error interno"}), 500
+
+    @webhook_app.route('/api/update_sniper', methods=['POST'])
+    @require_api_key
+    def update_sniper():
+        if not supabase:
+            return jsonify({"error": "Database not connected"}), 500
+        try:
+            data = request.json
+            chat_id = data.get("chat_id")
+            field = data.get("field")
+            value = data.get("value")
+            if not chat_id or not field:
+                return jsonify({"error": "Missing parameters"}), 400
+            supabase.table("sniper_settings").update({field: value}).eq("chat_id", chat_id).execute()
+            return jsonify({"success": True})
+        except Exception as e:
+            logger.error(f"Error updating sniper: {e}")
+            return jsonify({"error": "Error interno"}), 500
+
+    @webhook_app.route('/api/update_copy', methods=['POST'])
+    @require_api_key
+    def update_copy():
+        if not supabase:
+            return jsonify({"error": "Database not connected"}), 500
+        try:
+            data = request.json
+            chat_id = data.get("chat_id")
+            field = data.get("field")
+            value = data.get("value")
+            if not chat_id or not field:
+                return jsonify({"error": "Missing parameters"}), 400
+            supabase.table("copy_settings").update({field: value}).eq("chat_id", chat_id).execute()
+            return jsonify({"success": True})
+        except Exception as e:
+            logger.error(f"Error updating copy: {e}")
+            return jsonify({"error": "Error interno"}), 500
+
+    def run_webhook():
+        port = int(os.getenv("PORT", 5000))
+        webhook_app.run(host='0.0.0.0', port=port, debug=False)
+
+# ==================== MAIN ====================
+if __name__ == "__main__":
+    subscribers = load_subscribers()
+    if not supabase:
+        logger.critical("❌ Supabase no conectado. El bot NO se iniciará por seguridad.")
+        exit(1)
+
+    if MP_WEBHOOK_URL:
+        threading.Thread(target=run_webhook, daemon=True).start()
+        logger.info("🔄 Webhook server started on port 5000 (or PORT env)")
+    else:
+        logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started.")
+
+    reschedule_reports()
+
+    import asyncio
+
+    async def main():
+        if WS_ENABLED:
+            asyncio.create_task(update_prices_from_websocket())
+            logger.info("🔄 WebSocket price listener iniciado en background.")
+        else:
+            logger.info("ℹ️ WebSocket deshabilitado (WS_ENABLED=false). Usando REST.")
+
+        app = Application.builder().token(TELEGRAM_TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("menu", menu_command))
+        app.add_handler(CommandHandler("balance", balance))
+        app.add_handler(CommandHandler("premium", premium))
+        app.add_handler(CommandHandler("plans", plans_command))
+        app.add_handler(CommandHandler("id", id_command))
+        app.add_handler(CommandHandler("whale", whale))
+        app.add_handler(CommandHandler("terms", terms_command))
+        app.add_handler(CommandHandler("accept", accept_terms))
+        app.add_handler(CommandHandler("info", info_command))
+        app.add_handler(CommandHandler("news", news_command))
+        app.add_handler(CommandHandler("buy", buy))
+        app.add_handler(CommandHandler("sell", sell))
+        app.add_handler(CommandHandler("activate", activate))
+        app.add_handler(CommandHandler("plan", plan))
+        app.add_handler(CommandHandler("setemail", setemail))
+        app.add_handler(CommandHandler("force_premium", force_premium))
+        app.add_handler(CommandHandler("copy", copy))
+        app.add_handler(CommandHandler("rule", rule_command))
+        app.add_handler(CommandHandler("snipe", snipe_command))
+        app.add_handler(CommandHandler("sniper", sniper))
+        app.add_handler(CommandHandler("compare", compare))
+        app.add_handler(CallbackQueryHandler(button_handler))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
+
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
+
+        logger.info("🚀 Trading bot started successfully (Fase 6: Anti-MEV + Anti-Rug integrado)")
+
+        while True:
+            await asyncio.sleep(1)
+
+    asyncio.run(main())
