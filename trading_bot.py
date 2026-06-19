@@ -62,8 +62,7 @@ RATE_LIMIT_PERIOD = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
 
 # ==================== WEBSOCKET CONFIG ====================
 WS_ENABLED = os.getenv("WS_ENABLED", "true").lower() == "true"
-RPC_ENDPOINT_SOLANA = os.getenv("RPC_ENDPOINT_SOLANA", "https://api.mainnet-beta.solana.com")
-RPC_ENDPOINT_ETHEREUM = os.getenv("RPC_ENDPOINT_ETHEREUM", "https://cloudflare-eth.com")
+WS_EXCHANGE = os.getenv("WS_EXCHANGE", "kraken").lower()  # "kraken" o "binance"
 PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))
 
 if not MP_WEBHOOK_SECRET:
@@ -86,14 +85,26 @@ COINS = [
     ("avalanche-2", "AVAX", "AVAX")
 ]
 
-BINANCE_SYMBOLS = {
-    "BTC": "btcusdt",
-    "ETH": "ethusdt",
-    "SOL": "solusdt",
-    "XRP": "xrpusdt",
-    "BNB": "bnbusdt",
-    "LINK": "linkusdt",
-    "AVAX": "avaxusdt"
+# Mapeo de símbolos para cada exchange
+EXCHANGE_SYMBOLS = {
+    "binance": {
+        "BTC": "btcusdt",
+        "ETH": "ethusdt",
+        "SOL": "solusdt",
+        "XRP": "xrpusdt",
+        "BNB": "bnbusdt",
+        "LINK": "linkusdt",
+        "AVAX": "avaxusdt"
+    },
+    "kraken": {
+        "BTC": "XBT/USD",
+        "ETH": "ETH/USD",
+        "SOL": "SOL/USD",
+        "XRP": "XRP/USD",
+        "BNB": "BNB/USD",
+        "LINK": "LINK/USD",
+        "AVAX": "AVAX/USD"
+    }
 }
 
 # ==================== CACHE DE PRECIOS ====================
@@ -124,9 +135,9 @@ def fetch_prices_rest():
         logger.error(f"Error en fallback REST: {e}")
     return {}
 
-# ==================== WEB SOCKET (CORREGIDO) ====================
+# ==================== WEB SOCKET (KRAKEN / BINANCE) ====================
 ws_connection = None
-ws_active = True  # flag para controlar reconexiones
+ws_active = True
 
 async def update_prices_from_websocket():
     global PRICE_CACHE, ws_connection, ws_active, WS_ENABLED
@@ -134,52 +145,117 @@ async def update_prices_from_websocket():
         logger.info("WebSocket deshabilitado por configuración.")
         return
 
-    # Intentar primero con el endpoint sin puerto (más compatible)
-    streams = [f"{sym}@ticker" for sym in BINANCE_SYMBOLS.values()]
-    stream_url = f"wss://stream.binance.com/stream?streams={'/'.join(streams)}"
-    
-    while ws_active and WS_ENABLED:
-        try:
-            logger.info(f"🔌 Conectando a WebSocket de Binance...")
-            async with websockets.connect(stream_url, ping_interval=20, ping_timeout=10) as websocket:
-                ws_connection = websocket
-                logger.info("✅ WebSocket de precios conectado. Actualizando en tiempo real.")
-                
-                async for message in websocket:
-                    try:
-                        data = json_lib.loads(message)
-                        if 'data' in data:
-                            ticker = data['data']
-                            symbol = ticker['s'].upper().replace('USDT', '')
-                            price = float(ticker['c'])
-                            change = float(ticker['P'])
-                            
-                            coin_id = None
-                            for cid, sym, name in COINS:
-                                if sym == symbol:
-                                    coin_id = cid
-                                    break
-                            
-                            if coin_id:
-                                if coin_id not in PRICE_CACHE["data"]:
-                                    PRICE_CACHE["data"][coin_id] = {}
-                                PRICE_CACHE["data"][coin_id]["usd"] = price
-                                PRICE_CACHE["data"][coin_id]["usd_24h_change"] = change
-                                PRICE_CACHE["last_update"] = time.time()
-                    except Exception as e:
-                        logger.error(f"Error procesando mensaje WS: {e}")
-        except websockets.exceptions.InvalidStatusCode as e:
-            if e.status_code == 451:
-                logger.error("❌ WebSocket bloqueado por región (HTTP 451). Desactivando WebSocket y usando REST.")
+    exchange = WS_EXCHANGE
+    logger.info(f"🌐 Usando WebSocket de {exchange.upper()}")
+
+    if exchange == "kraken":
+        # Kraken WebSocket: stream de tickers
+        symbols = [EXCHANGE_SYMBOLS["kraken"][sym] for sym in COINS if sym[1] in EXCHANGE_SYMBOLS["kraken"]]
+        # Kraken usa pares con /, pero en el canal ticker se usa sin slash? Usamos el formato "XBT/USD" -> "XBTUSD" para el canal
+        # Pero mejor usar el canal "ticker" con el par tal cual
+        # Ejemplo: {"event":"subscribe","subscription":{"name":"ticker"},"pair":["XBT/USD","ETH/USD",...]}
+        kraken_symbols = [EXCHANGE_SYMBOLS["kraken"][sym[1]] for sym in COINS if sym[1] in EXCHANGE_SYMBOLS["kraken"]]
+        subscription_msg = {
+            "event": "subscribe",
+            "subscription": {"name": "ticker"},
+            "pair": kraken_symbols
+        }
+        ws_url = "wss://ws.kraken.com"
+        
+        while ws_active and WS_ENABLED:
+            try:
+                logger.info(f"🔌 Conectando a WebSocket de Kraken...")
+                async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as websocket:
+                    ws_connection = websocket
+                    # Enviar suscripción
+                    await websocket.send(json.dumps(subscription_msg))
+                    logger.info("✅ WebSocket de Kraken conectado. Actualizando en tiempo real.")
+                    
+                    async for message in websocket:
+                        try:
+                            data = json_lib.loads(message)
+                            # Kraken envía arrays: [channel_id, data, channel_name, pair]
+                            if isinstance(data, list) and len(data) >= 4 and data[2] == "ticker":
+                                ticker_data = data[1]
+                                pair = data[3]  # ej: "XBT/USD"
+                                # Buscar símbolo
+                                symbol = None
+                                for sym, kraken_pair in EXCHANGE_SYMBOLS["kraken"].items():
+                                    if kraken_pair == pair:
+                                        symbol = sym
+                                        break
+                                if symbol:
+                                    price = float(ticker_data['c'][0])  # último precio
+                                    change = float(ticker_data.get('p', [0])[0])  # cambio 24h (si existe)
+                                    # Buscar coin_id
+                                    coin_id = None
+                                    for cid, sym, name in COINS:
+                                        if sym == symbol:
+                                            coin_id = cid
+                                            break
+                                    if coin_id:
+                                        if coin_id not in PRICE_CACHE["data"]:
+                                            PRICE_CACHE["data"][coin_id] = {}
+                                        PRICE_CACHE["data"][coin_id]["usd"] = price
+                                        PRICE_CACHE["data"][coin_id]["usd_24h_change"] = change
+                                        PRICE_CACHE["last_update"] = time.time()
+                        except Exception as e:
+                            logger.error(f"Error procesando mensaje WS Kraken: {e}")
+            except websockets.exceptions.InvalidStatusCode as e:
+                logger.error(f"❌ WebSocket Kraken error HTTP {e.status_code}. Desactivando WebSocket.")
                 WS_ENABLED = False
                 ws_active = False
                 break
-            else:
-                logger.error(f"❌ WebSocket error HTTP {e.status_code}. Reintentando en 10s...")
+            except Exception as e:
+                logger.error(f"❌ WebSocket Kraken desconectado: {e}. Reintentando en 10s...")
                 await asyncio.sleep(10)
-        except Exception as e:
-            logger.error(f"❌ WebSocket desconectado: {e}. Reintentando en 10 segundos...")
-            await asyncio.sleep(10)
+    else:
+        # Binance (fallback, pero con manejo de 451)
+        symbols = [EXCHANGE_SYMBOLS["binance"][sym[1]] for sym in COINS if sym[1] in EXCHANGE_SYMBOLS["binance"]]
+        stream_url = f"wss://stream.binance.com/stream?streams={'/'.join([f'{s}@ticker' for s in symbols])}"
+        
+        while ws_active and WS_ENABLED:
+            try:
+                logger.info(f"🔌 Conectando a WebSocket de Binance...")
+                async with websockets.connect(stream_url, ping_interval=20, ping_timeout=10) as websocket:
+                    ws_connection = websocket
+                    logger.info("✅ WebSocket de Binance conectado. Actualizando en tiempo real.")
+                    
+                    async for message in websocket:
+                        try:
+                            data = json_lib.loads(message)
+                            if 'data' in data:
+                                ticker = data['data']
+                                symbol = ticker['s'].upper().replace('USDT', '')
+                                price = float(ticker['c'])
+                                change = float(ticker['P'])
+                                
+                                coin_id = None
+                                for cid, sym, name in COINS:
+                                    if sym == symbol:
+                                        coin_id = cid
+                                        break
+                                
+                                if coin_id:
+                                    if coin_id not in PRICE_CACHE["data"]:
+                                        PRICE_CACHE["data"][coin_id] = {}
+                                    PRICE_CACHE["data"][coin_id]["usd"] = price
+                                    PRICE_CACHE["data"][coin_id]["usd_24h_change"] = change
+                                    PRICE_CACHE["last_update"] = time.time()
+                        except Exception as e:
+                            logger.error(f"Error procesando mensaje WS Binance: {e}")
+            except websockets.exceptions.InvalidStatusCode as e:
+                if e.status_code == 451:
+                    logger.error("❌ WebSocket Binance bloqueado por región (HTTP 451). Desactivando WebSocket.")
+                    WS_ENABLED = False
+                    ws_active = False
+                    break
+                else:
+                    logger.error(f"❌ WebSocket Binance error HTTP {e.status_code}. Reintentando en 10s...")
+                    await asyncio.sleep(10)
+            except Exception as e:
+                logger.error(f"❌ WebSocket Binance desconectado: {e}. Reintentando en 10s...")
+                await asyncio.sleep(10)
 
 # ==================== USER DATA ====================
 USER_DATA = {}
@@ -893,7 +969,7 @@ async def show_status(query):
     if not prices:
         await query.edit_message_text("⚠️ Could not fetch data. Try again later.")
         return
-    message = "📊 *LIVE MARKET STATUS* (REST + cache)\n\n"
+    message = "📊 *LIVE MARKET STATUS* (WebSocket)\n\n"
     for coin_id, symbol, name in COINS:
         if coin_id not in prices:
             continue
@@ -2544,7 +2620,7 @@ if __name__ == "__main__":
     import asyncio
 
     async def main():
-        # WebSocket solo si está habilitado (si falla se desactiva solo)
+        # WebSocket con Kraken por defecto
         if WS_ENABLED:
             asyncio.create_task(update_prices_from_websocket())
             logger.info("🔄 WebSocket price listener iniciado en background.")
@@ -2581,7 +2657,7 @@ if __name__ == "__main__":
         await app.start()
         await app.updater.start_polling()
 
-        logger.info("🚀 Trading bot started successfully (Fase 5: WebSocket con fallback REST)")
+        logger.info("🚀 Trading bot started successfully (Fase 5: Kraken WebSocket + Velocidad Extrema)")
 
         while True:
             await asyncio.sleep(1)
