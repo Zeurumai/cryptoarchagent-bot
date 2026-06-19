@@ -31,7 +31,7 @@ from trading_engine import TradingEngine
 from supabase import create_client, Client
 from functools import wraps
 
-# ==================== NUEVO: WEBSOCKETS ====================
+# ==================== WEBSOCKET ====================
 import websockets
 import json as json_lib
 
@@ -52,7 +52,7 @@ BINANCE_REFERRAL_LINK = os.getenv("BINANCE_REFERRAL_LINK", "https://www.binance.
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==================== SEGURIDAD - CONFIGURACIÓN DESDE RAILWAY ====================
+# ==================== SEGURIDAD ====================
 ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "8355456581").split(",")))
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
 MP_WEBHOOK_SECRET = os.getenv("MP_WEBHOOK_SECRET", "")
@@ -60,13 +60,12 @@ DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "20"))
 RATE_LIMIT_PERIOD = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
 
-# ==================== NUEVO: CONFIGURACIÓN WEBSOCKET ====================
+# ==================== WEBSOCKET CONFIG ====================
 WS_ENABLED = os.getenv("WS_ENABLED", "true").lower() == "true"
 RPC_ENDPOINT_SOLANA = os.getenv("RPC_ENDPOINT_SOLANA", "https://api.mainnet-beta.solana.com")
 RPC_ENDPOINT_ETHEREUM = os.getenv("RPC_ENDPOINT_ETHEREUM", "https://cloudflare-eth.com")
 PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))
 
-# Validación CRÍTICA: si faltan secretos, el bot NO ARRANCA
 if not MP_WEBHOOK_SECRET:
     raise ValueError("❌ MP_WEBHOOK_SECRET no está en Railway")
 if not DASHBOARD_API_KEY:
@@ -97,7 +96,7 @@ BINANCE_SYMBOLS = {
     "AVAX": "avaxusdt"
 }
 
-# ==================== CACHÉ DE PRECIOS EN MEMORIA ====================
+# ==================== CACHE DE PRECIOS ====================
 PRICE_CACHE = {
     "data": {},
     "last_update": 0
@@ -108,7 +107,6 @@ def get_cached_prices():
     now = time.time()
     if PRICE_CACHE["data"] and (now - PRICE_CACHE["last_update"]) < PRICE_CACHE_TTL:
         return PRICE_CACHE["data"]
-    logger.debug("Cache expirado o vacío, usando REST fallback")
     return fetch_prices_rest()
 
 def fetch_prices_rest():
@@ -126,19 +124,21 @@ def fetch_prices_rest():
         logger.error(f"Error en fallback REST: {e}")
     return {}
 
-# ==================== WEB SOCKET MANAGER ====================
+# ==================== WEB SOCKET (CORREGIDO) ====================
 ws_connection = None
+ws_active = True  # flag para controlar reconexiones
 
 async def update_prices_from_websocket():
-    global PRICE_CACHE, ws_connection
+    global PRICE_CACHE, ws_connection, ws_active, WS_ENABLED
     if not WS_ENABLED:
         logger.info("WebSocket deshabilitado por configuración.")
         return
 
+    # Intentar primero con el endpoint sin puerto (más compatible)
     streams = [f"{sym}@ticker" for sym in BINANCE_SYMBOLS.values()]
-    stream_url = f"wss://stream.binance.com:9443/stream?streams={'/'.join(streams)}"
+    stream_url = f"wss://stream.binance.com/stream?streams={'/'.join(streams)}"
     
-    while True:
+    while ws_active and WS_ENABLED:
         try:
             logger.info(f"🔌 Conectando a WebSocket de Binance...")
             async with websockets.connect(stream_url, ping_interval=20, ping_timeout=10) as websocket:
@@ -168,9 +168,18 @@ async def update_prices_from_websocket():
                                 PRICE_CACHE["last_update"] = time.time()
                     except Exception as e:
                         logger.error(f"Error procesando mensaje WS: {e}")
+        except websockets.exceptions.InvalidStatusCode as e:
+            if e.status_code == 451:
+                logger.error("❌ WebSocket bloqueado por región (HTTP 451). Desactivando WebSocket y usando REST.")
+                WS_ENABLED = False
+                ws_active = False
+                break
+            else:
+                logger.error(f"❌ WebSocket error HTTP {e.status_code}. Reintentando en 10s...")
+                await asyncio.sleep(10)
         except Exception as e:
-            logger.error(f"❌ WebSocket desconectado: {e}. Reintentando en 5 segundos...")
-            await asyncio.sleep(5)
+            logger.error(f"❌ WebSocket desconectado: {e}. Reintentando en 10 segundos...")
+            await asyncio.sleep(10)
 
 # ==================== USER DATA ====================
 USER_DATA = {}
@@ -884,7 +893,7 @@ async def show_status(query):
     if not prices:
         await query.edit_message_text("⚠️ Could not fetch data. Try again later.")
         return
-    message = "📊 *LIVE MARKET STATUS (WebSocket)*\n\n"
+    message = "📊 *LIVE MARKET STATUS* (REST + cache)\n\n"
     for coin_id, symbol, name in COINS:
         if coin_id not in prices:
             continue
@@ -2519,34 +2528,29 @@ if MP_WEBHOOK_URL:
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
-    # Cargar suscriptores y verificar Supabase
     subscribers = load_subscribers()
     if not supabase:
         logger.critical("❌ Supabase no conectado. El bot NO se iniciará por seguridad.")
         exit(1)
 
-    # Iniciar webhook en thread separado
     if MP_WEBHOOK_URL:
         threading.Thread(target=run_webhook, daemon=True).start()
         logger.info("🔄 Webhook server started on port 5000 (or PORT env)")
     else:
         logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started.")
 
-    # Programar tareas (alertas, reportes)
     reschedule_reports()
 
-    # ==================== CORREGIDO: UN SOLO EVENT LOOP ====================
     import asyncio
 
     async def main():
-        # Iniciar WebSocket como tarea en el mismo loop
+        # WebSocket solo si está habilitado (si falla se desactiva solo)
         if WS_ENABLED:
             asyncio.create_task(update_prices_from_websocket())
             logger.info("🔄 WebSocket price listener iniciado en background.")
         else:
             logger.info("ℹ️ WebSocket deshabilitado (WS_ENABLED=false). Usando REST.")
 
-        # Inicializar la aplicación de Telegram
         app = Application.builder().token(TELEGRAM_TOKEN).build()
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("menu", menu_command))
@@ -2573,16 +2577,13 @@ if __name__ == "__main__":
         app.add_handler(CallbackQueryHandler(button_handler))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 
-        # Iniciar el bot con start_polling (asíncrono)
         await app.initialize()
         await app.start()
         await app.updater.start_polling()
 
-        logger.info("🚀 Trading bot started successfully (Fase 5: WebSockets + Velocidad Extrema)")
+        logger.info("🚀 Trading bot started successfully (Fase 5: WebSocket con fallback REST)")
 
-        # Mantener el bot corriendo
         while True:
             await asyncio.sleep(1)
 
-    # Ejecutar el main asíncrono
     asyncio.run(main())
