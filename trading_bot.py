@@ -520,12 +520,23 @@ def is_rate_limited(chat_id: int) -> bool:
     rate_limit_store[key].append(now)
     return False
 
+# Decorador universal para rate limiting
+def rate_limited():
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            chat_id = update.effective_chat.id
+            if is_rate_limited(chat_id):
+                await update.message.reply_text("⏳ Demasiadas peticiones. Espera un momento.")
+                return
+            return await func(update, context)
+        return wrapper
+    return decorator
+
 # ==================== BOT HANDLERS ====================
+@rate_limited()
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    if is_rate_limited(chat_id):
-        await update.message.reply_text("⏳ Demasiadas peticiones. Espera un momento.")
-        return
     if not has_accepted_terms(chat_id):
         await terms_command(update, context)
         return
@@ -979,6 +990,7 @@ async def help_menu(query):
     await query.edit_message_text(message, parse_mode="Markdown")
 
 # ==================== COMPARE ====================
+@rate_limited()
 async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """
 ⚔️ *CryptoArch Agent vs. The Giants*
@@ -1015,11 +1027,8 @@ Use /plan to check your level.
     await update.message.reply_text(text, parse_mode="Markdown")
 
 # ==================== WHALE FUNCTIONS ====================
+@rate_limited()
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    if is_rate_limited(chat_id):
-        await update.message.reply_text("⏳ Demasiadas peticiones. Espera.")
-        return
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
 
     btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
@@ -1362,6 +1371,7 @@ async def execute_sniper(chat_id, alerts, context):
         logger.error(f"Error executing sniper for {chat_id}: {e}")
 
 # ==================== COPY TRADING ====================
+@rate_limited()
 async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
@@ -1490,6 +1500,7 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("❌ Error interno. Intenta más tarde.")
 
 # ==================== RULES ====================
+@rate_limited()
 async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     try:
@@ -1519,6 +1530,7 @@ async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in rules_menu: {e}")
         await update.message.reply_text("❌ Error interno. Intenta más tarde.")
 
+@rate_limited()
 async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
@@ -1646,6 +1658,7 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Unknown subcommand. Use: add, list, toggle, delete")
 
 # ==================== SNIPE ====================
+@rate_limited()
 async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     try:
@@ -1675,6 +1688,7 @@ async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.error(f"Error in snipe_settings_menu: {e}")
         await update.message.reply_text("❌ Error interno. Intenta más tarde.")
 
+@rate_limited()
 async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
@@ -1740,6 +1754,7 @@ async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Unknown subcommand. Use: set, on, off")
 
 # ==================== SNIPER X ====================
+@rate_limited()
 async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
@@ -1835,6 +1850,7 @@ async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text(f"🆔 *Your user ID:* `{chat_id}`", parse_mode="Markdown")
 
+@rate_limited()
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         engine = TradingEngine(testnet=True)
@@ -1846,6 +1862,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in balance: {e}")
         await update.message.reply_text("❌ Error interno. Intenta más tarde.", parse_mode="Markdown")
 
+@rate_limited()
 async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     level = get_user_level(chat_id)
@@ -1876,6 +1893,7 @@ async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = "🔒 *FREE user*\n\nTo get started, use /start."
     await update.message.reply_text(message, parse_mode="Markdown")
 
+@rate_limited()
 async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """
 📊 *Commission levels* (no subscriptions):
@@ -1892,6 +1910,7 @@ Use /activate to check your level.
 """
     await update.message.reply_text(text, parse_mode="Markdown")
 
+@rate_limited()
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:
@@ -1934,6 +1953,7 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in /info: {e}")
         await update.message.reply_text("❌ Error interno. Intenta más tarde.")
 
+@rate_limited()
 async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📰 *Fetching latest news...*", parse_mode="Markdown")
     sources = [
@@ -1976,11 +1996,9 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #     await update.message.reply_text("❌ Subscriptions have been removed. CryptoArch Agent is now 100% free with commission-based pricing.")
 
 # ==================== TRADING TESTNET ====================
+@rate_limited()
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    if is_rate_limited(chat_id):
-        await update.message.reply_text("⏳ Demasiadas peticiones. Espera.")
-        return
     level = get_user_level(chat_id)
     if level == -1:
         await update.message.reply_text(
@@ -2027,11 +2045,9 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in buy: {e}")
         await update.message.reply_text("❌ Error interno. Intenta más tarde.")
 
+@rate_limited()
 async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    if is_rate_limited(chat_id):
-        await update.message.reply_text("⏳ Demasiadas peticiones. Espera.")
-        return
     level = get_user_level(chat_id)
     if level == -1:
         await update.message.reply_text(
@@ -2162,6 +2178,7 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("pending_order", None)
 
 # ==================== ACTIVATE / PLAN ====================
+@rate_limited()
 async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text(
@@ -2226,6 +2243,7 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in activate: {e}")
         await update.message.reply_text("❌ Error interno. Intenta más tarde.", parse_mode="Markdown")
 
+@rate_limited()
 async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     subscribers = load_subscribers()
@@ -2493,5 +2511,5 @@ if __name__ == "__main__":
             time.sleep(1)
     threading.Thread(target=run_schedule, daemon=True).start()
 
-    logger.info("🚀 Trading bot started successfully (secured version)")
+    logger.info("🚀 Trading bot started successfully (secured version with rate limiting)")
     app.run_polling()
