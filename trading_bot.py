@@ -33,7 +33,6 @@ from functools import wraps
 
 # ==================== NUEVO: WEBSOCKETS ====================
 import websockets
-import asyncio
 import json as json_lib
 
 load_dotenv()
@@ -65,7 +64,7 @@ RATE_LIMIT_PERIOD = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
 WS_ENABLED = os.getenv("WS_ENABLED", "true").lower() == "true"
 RPC_ENDPOINT_SOLANA = os.getenv("RPC_ENDPOINT_SOLANA", "https://api.mainnet-beta.solana.com")
 RPC_ENDPOINT_ETHEREUM = os.getenv("RPC_ENDPOINT_ETHEREUM", "https://cloudflare-eth.com")
-PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))  # Segundos
+PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))
 
 # Validación CRÍTICA: si faltan secretos, el bot NO ARRANCA
 if not MP_WEBHOOK_SECRET:
@@ -88,7 +87,6 @@ COINS = [
     ("avalanche-2", "AVAX", "AVAX")
 ]
 
-# Mapeo para WebSocket de Binance (símbolos)
 BINANCE_SYMBOLS = {
     "BTC": "btcusdt",
     "ETH": "ethusdt",
@@ -99,34 +97,27 @@ BINANCE_SYMBOLS = {
     "AVAX": "avaxusdt"
 }
 
-# ==================== CACHÉ DE PRECIOS EN MEMORIA (ULTRA RÁPIDO) ====================
+# ==================== CACHÉ DE PRECIOS EN MEMORIA ====================
 PRICE_CACHE = {
-    "data": {},  # { "BTC": {"usd": 65000, "usd_24h_change": 1.5}, ... }
+    "data": {},
     "last_update": 0
 }
 
 def get_cached_prices():
-    """Devuelve los precios en caché. Si expiró o está vacío, llama a REST (fallback)."""
     global PRICE_CACHE
     now = time.time()
-    
-    # Si el cache tiene datos y no expiró, devolverlos (VELOCIDAD EXTREMA)
     if PRICE_CACHE["data"] and (now - PRICE_CACHE["last_update"]) < PRICE_CACHE_TTL:
         return PRICE_CACHE["data"]
-    
-    # Fallback a REST (si WebSocket no ha conectado o expiró)
     logger.debug("Cache expirado o vacío, usando REST fallback")
     return fetch_prices_rest()
 
 def fetch_prices_rest():
-    """Función REST original (fallback)."""
     ids = ",".join([c[0] for c in COINS])
     url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd&include_24hr_change=true"
     try:
         r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if r.status_code == 200:
             data = r.json()
-            # Actualizar cache para futuras llamadas
             global PRICE_CACHE
             PRICE_CACHE["data"] = data
             PRICE_CACHE["last_update"] = time.time()
@@ -137,10 +128,8 @@ def fetch_prices_rest():
 
 # ==================== WEB SOCKET MANAGER ====================
 ws_connection = None
-ws_task = None
 
 async def update_prices_from_websocket():
-    """Conexión perpetua a Binance WebSocket para actualizar PRICE_CACHE en tiempo real."""
     global PRICE_CACHE, ws_connection
     if not WS_ENABLED:
         logger.info("WebSocket deshabilitado por configuración.")
@@ -163,9 +152,8 @@ async def update_prices_from_websocket():
                             ticker = data['data']
                             symbol = ticker['s'].upper().replace('USDT', '')
                             price = float(ticker['c'])
-                            change = float(ticker['P'])  # Cambio porcentual 24h
+                            change = float(ticker['P'])
                             
-                            # Buscar el coin_id de CoinGecko correspondiente
                             coin_id = None
                             for cid, sym, name in COINS:
                                 if sym == symbol:
@@ -173,7 +161,6 @@ async def update_prices_from_websocket():
                                     break
                             
                             if coin_id:
-                                # Actualizar cache atómico
                                 if coin_id not in PRICE_CACHE["data"]:
                                     PRICE_CACHE["data"][coin_id] = {}
                                 PRICE_CACHE["data"][coin_id]["usd"] = price
@@ -215,12 +202,12 @@ else:
 
 SUBSCRIBERS_FILE = "subscribers.json"
 
-# ==================== NIVELES (NUEVO MODELO) ====================
+# ==================== NIVELES ====================
 LEVELS = {
     0: {
         "name": "Explorer",
         "emoji": "🧭",
-        "commission": 0.005,      # 0.5%
+        "commission": 0.005,
         "insignia": "🔰",
         "benefits": "Alertas básicas, ballenas, noticias, 14 días gratis",
         "active": False,
@@ -230,7 +217,7 @@ LEVELS = {
     1: {
         "name": "Trader",
         "emoji": "📊",
-        "commission": 0.004,      # 0.4%
+        "commission": 0.004,
         "insignia": "⚡",
         "benefits": "Todo Explorer + Copy Trading",
         "active": True,
@@ -240,7 +227,7 @@ LEVELS = {
     2: {
         "name": "Pro",
         "emoji": "⭐",
-        "commission": 0.003,      # 0.3%
+        "commission": 0.003,
         "insignia": "🌟",
         "benefits": "Todo Trader + Sniper X + Auto Trading",
         "active": True,
@@ -250,22 +237,22 @@ LEVELS = {
     3: {
         "name": "Elite",
         "emoji": "👑",
-        "commission": 0.003,      # 0.3%
+        "commission": 0.003,
         "insignia": "🏆",
         "benefits": "Todo Pro + Acceso Beta + Insignia exclusiva",
         "active": True,
         "beta_access": True,
-        "token_reward": 0.0005    # 0.05% en tokens
+        "token_reward": 0.0005
     },
     4: {
         "name": "Legendary",
         "emoji": "🏆",
-        "commission": 0.003,      # 0.3%
+        "commission": 0.003,
         "insignia": "⚜️",
         "benefits": "Todo Elite + Voto en features + Soporte VIP",
         "active": True,
         "beta_access": True,
-        "token_reward": 0.0005    # 0.05% en tokens
+        "token_reward": 0.0005
     }
 }
 
@@ -512,13 +499,11 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await start(update, context)
 
-# ==================== FUNCIONES DE MERCADO (MODIFICADAS CON CACHE) ====================
+# ==================== FUNCIONES DE MERCADO ====================
 def get_all_prices():
-    """Versión ultrarrápida usando caché de WebSocket + fallback REST."""
     return get_cached_prices()
 
 def get_coin_price_by_id(coin_id):
-    """Obtiene precio de un coin específico usando caché."""
     prices = get_all_prices()
     if coin_id in prices:
         return prices[coin_id].get("usd")
@@ -1138,7 +1123,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
     context.user_data["last_whale_alerts"] = all_alerts
 
-    # Bitcoin
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
         for idx, alert in enumerate(btc_alerts):
@@ -1148,17 +1132,14 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
-            
             radar = predecir_movimiento_ballena(alert)
             output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
 
-    # Ethereum
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
         for idx, alert in enumerate(eth_alerts, start=len(btc_alerts)):
@@ -1168,17 +1149,14 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
-            
             radar = predecir_movimiento_ballena(alert)
             output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
 
-    # Solana
     if sol_alerts:
         output += "◎ *Solana (SOL)*\n"
         for idx, alert in enumerate(sol_alerts, start=len(btc_alerts) + len(eth_alerts)):
@@ -1188,17 +1166,14 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
-            
             radar = predecir_movimiento_ballena(alert)
             output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
     else:
         output += "◎ *Solana (SOL)*\nNo significant movements recently.\n\n"
 
-    # Polygon
     if matic_alerts:
         output += "🟣 *Polygon (MATIC)*\n"
         for idx, alert in enumerate(matic_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts)):
@@ -1208,17 +1183,14 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
-            
             radar = predecir_movimiento_ballena(alert)
             output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
     else:
         output += "🟣 *Polygon (MATIC)*\nNo significant movements recently.\n\n"
 
-    # Arbitrum
     if arb_alerts:
         output += "🔵 *Arbitrum (ARB)*\n"
         for idx, alert in enumerate(arb_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts) + len(matic_alerts)):
@@ -1228,10 +1200,8 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
                 output += f"   🧠 *AI:* {ia_analysis}\n"
-            
             radar = predecir_movimiento_ballena(alert)
             output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            
             context.user_data[f"whale_alert_{idx}"] = alert
             output += f"   🆔 `whale_{idx}`\n"
             output += "\n"
@@ -2549,66 +2519,70 @@ if MP_WEBHOOK_URL:
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
+    # Cargar suscriptores y verificar Supabase
     subscribers = load_subscribers()
     if not supabase:
         logger.critical("❌ Supabase no conectado. El bot NO se iniciará por seguridad.")
         exit(1)
 
+    # Iniciar webhook en thread separado
     if MP_WEBHOOK_URL:
         threading.Thread(target=run_webhook, daemon=True).start()
         logger.info("🔄 Webhook server started on port 5000 (or PORT env)")
     else:
         logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started.")
 
+    # Programar tareas (alertas, reportes)
     reschedule_reports()
 
-    # Iniciar tarea asíncrona de WebSocket en el background
-    if WS_ENABLED:
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.create_task(update_prices_from_websocket())
-            # Corremos el loop en un hilo separado para no bloquear
-            def run_ws_loop():
-                loop.run_forever()
-            threading.Thread(target=run_ws_loop, daemon=True).start()
+    # ==================== CORREGIDO: UN SOLO EVENT LOOP ====================
+    import asyncio
+
+    async def main():
+        # Iniciar WebSocket como tarea en el mismo loop
+        if WS_ENABLED:
+            asyncio.create_task(update_prices_from_websocket())
             logger.info("🔄 WebSocket price listener iniciado en background.")
-        except Exception as e:
-            logger.error(f"Error iniciando WebSocket: {e}")
-    else:
-        logger.info("ℹ️ WebSocket deshabilitado (WS_ENABLED=false). Usando REST.")
+        else:
+            logger.info("ℹ️ WebSocket deshabilitado (WS_ENABLED=false). Usando REST.")
 
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("menu", menu_command))
-    app.add_handler(CommandHandler("balance", balance))
-    app.add_handler(CommandHandler("premium", premium))
-    app.add_handler(CommandHandler("plans", plans_command))
-    app.add_handler(CommandHandler("id", id_command))
-    app.add_handler(CommandHandler("whale", whale))
-    app.add_handler(CommandHandler("terms", terms_command))
-    app.add_handler(CommandHandler("accept", accept_terms))
-    app.add_handler(CommandHandler("info", info_command))
-    app.add_handler(CommandHandler("news", news_command))
-    app.add_handler(CommandHandler("buy", buy))
-    app.add_handler(CommandHandler("sell", sell))
-    app.add_handler(CommandHandler("activate", activate))
-    app.add_handler(CommandHandler("plan", plan))
-    app.add_handler(CommandHandler("setemail", setemail))
-    app.add_handler(CommandHandler("force_premium", force_premium))
-    app.add_handler(CommandHandler("copy", copy))
-    app.add_handler(CommandHandler("rule", rule_command))
-    app.add_handler(CommandHandler("snipe", snipe_command))
-    app.add_handler(CommandHandler("sniper", sniper))
-    app.add_handler(CommandHandler("compare", compare))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
+        # Inicializar la aplicación de Telegram
+        app = Application.builder().token(TELEGRAM_TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("menu", menu_command))
+        app.add_handler(CommandHandler("balance", balance))
+        app.add_handler(CommandHandler("premium", premium))
+        app.add_handler(CommandHandler("plans", plans_command))
+        app.add_handler(CommandHandler("id", id_command))
+        app.add_handler(CommandHandler("whale", whale))
+        app.add_handler(CommandHandler("terms", terms_command))
+        app.add_handler(CommandHandler("accept", accept_terms))
+        app.add_handler(CommandHandler("info", info_command))
+        app.add_handler(CommandHandler("news", news_command))
+        app.add_handler(CommandHandler("buy", buy))
+        app.add_handler(CommandHandler("sell", sell))
+        app.add_handler(CommandHandler("activate", activate))
+        app.add_handler(CommandHandler("plan", plan))
+        app.add_handler(CommandHandler("setemail", setemail))
+        app.add_handler(CommandHandler("force_premium", force_premium))
+        app.add_handler(CommandHandler("copy", copy))
+        app.add_handler(CommandHandler("rule", rule_command))
+        app.add_handler(CommandHandler("snipe", snipe_command))
+        app.add_handler(CommandHandler("sniper", sniper))
+        app.add_handler(CommandHandler("compare", compare))
+        app.add_handler(CallbackQueryHandler(button_handler))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 
-    def run_schedule():
+        # Iniciar el bot con start_polling (asíncrono)
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
+
+        logger.info("🚀 Trading bot started successfully (Fase 5: WebSockets + Velocidad Extrema)")
+
+        # Mantener el bot corriendo
         while True:
-            schedule.run_pending()
-            time.sleep(1)
-    threading.Thread(target=run_schedule, daemon=True).start()
+            await asyncio.sleep(1)
 
-    logger.info("🚀 Trading bot started successfully (Fase 5: WebSockets + Velocidad Extrema)")
-    app.run_polling()
+    # Ejecutar el main asíncrono
+    asyncio.run(main())
