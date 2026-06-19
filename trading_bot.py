@@ -31,6 +31,11 @@ from trading_engine import TradingEngine
 from supabase import create_client, Client
 from functools import wraps
 
+# ==================== NUEVO: WEBSOCKETS ====================
+import websockets
+import asyncio
+import json as json_lib
+
 load_dotenv()
 
 # ==================== CONFIGURACIÓN ====================
@@ -56,6 +61,12 @@ DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "20"))
 RATE_LIMIT_PERIOD = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
 
+# ==================== NUEVO: CONFIGURACIÓN WEBSOCKET ====================
+WS_ENABLED = os.getenv("WS_ENABLED", "true").lower() == "true"
+RPC_ENDPOINT_SOLANA = os.getenv("RPC_ENDPOINT_SOLANA", "https://api.mainnet-beta.solana.com")
+RPC_ENDPOINT_ETHEREUM = os.getenv("RPC_ENDPOINT_ETHEREUM", "https://cloudflare-eth.com")
+PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))  # Segundos
+
 # Validación CRÍTICA: si faltan secretos, el bot NO ARRANCA
 if not MP_WEBHOOK_SECRET:
     raise ValueError("❌ MP_WEBHOOK_SECRET no está en Railway")
@@ -76,6 +87,103 @@ COINS = [
     ("chainlink", "LINK", "Chainlink"),
     ("avalanche-2", "AVAX", "AVAX")
 ]
+
+# Mapeo para WebSocket de Binance (símbolos)
+BINANCE_SYMBOLS = {
+    "BTC": "btcusdt",
+    "ETH": "ethusdt",
+    "SOL": "solusdt",
+    "XRP": "xrpusdt",
+    "BNB": "bnbusdt",
+    "LINK": "linkusdt",
+    "AVAX": "avaxusdt"
+}
+
+# ==================== CACHÉ DE PRECIOS EN MEMORIA (ULTRA RÁPIDO) ====================
+PRICE_CACHE = {
+    "data": {},  # { "BTC": {"usd": 65000, "usd_24h_change": 1.5}, ... }
+    "last_update": 0
+}
+
+def get_cached_prices():
+    """Devuelve los precios en caché. Si expiró o está vacío, llama a REST (fallback)."""
+    global PRICE_CACHE
+    now = time.time()
+    
+    # Si el cache tiene datos y no expiró, devolverlos (VELOCIDAD EXTREMA)
+    if PRICE_CACHE["data"] and (now - PRICE_CACHE["last_update"]) < PRICE_CACHE_TTL:
+        return PRICE_CACHE["data"]
+    
+    # Fallback a REST (si WebSocket no ha conectado o expiró)
+    logger.debug("Cache expirado o vacío, usando REST fallback")
+    return fetch_prices_rest()
+
+def fetch_prices_rest():
+    """Función REST original (fallback)."""
+    ids = ",".join([c[0] for c in COINS])
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd&include_24hr_change=true"
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            # Actualizar cache para futuras llamadas
+            global PRICE_CACHE
+            PRICE_CACHE["data"] = data
+            PRICE_CACHE["last_update"] = time.time()
+            return data
+    except Exception as e:
+        logger.error(f"Error en fallback REST: {e}")
+    return {}
+
+# ==================== WEB SOCKET MANAGER ====================
+ws_connection = None
+ws_task = None
+
+async def update_prices_from_websocket():
+    """Conexión perpetua a Binance WebSocket para actualizar PRICE_CACHE en tiempo real."""
+    global PRICE_CACHE, ws_connection
+    if not WS_ENABLED:
+        logger.info("WebSocket deshabilitado por configuración.")
+        return
+
+    streams = [f"{sym}@ticker" for sym in BINANCE_SYMBOLS.values()]
+    stream_url = f"wss://stream.binance.com:9443/stream?streams={'/'.join(streams)}"
+    
+    while True:
+        try:
+            logger.info(f"🔌 Conectando a WebSocket de Binance...")
+            async with websockets.connect(stream_url, ping_interval=20, ping_timeout=10) as websocket:
+                ws_connection = websocket
+                logger.info("✅ WebSocket de precios conectado. Actualizando en tiempo real.")
+                
+                async for message in websocket:
+                    try:
+                        data = json_lib.loads(message)
+                        if 'data' in data:
+                            ticker = data['data']
+                            symbol = ticker['s'].upper().replace('USDT', '')
+                            price = float(ticker['c'])
+                            change = float(ticker['P'])  # Cambio porcentual 24h
+                            
+                            # Buscar el coin_id de CoinGecko correspondiente
+                            coin_id = None
+                            for cid, sym, name in COINS:
+                                if sym == symbol:
+                                    coin_id = cid
+                                    break
+                            
+                            if coin_id:
+                                # Actualizar cache atómico
+                                if coin_id not in PRICE_CACHE["data"]:
+                                    PRICE_CACHE["data"][coin_id] = {}
+                                PRICE_CACHE["data"][coin_id]["usd"] = price
+                                PRICE_CACHE["data"][coin_id]["usd_24h_change"] = change
+                                PRICE_CACHE["last_update"] = time.time()
+                    except Exception as e:
+                        logger.error(f"Error procesando mensaje WS: {e}")
+        except Exception as e:
+            logger.error(f"❌ WebSocket desconectado: {e}. Reintentando en 5 segundos...")
+            await asyncio.sleep(5)
 
 # ==================== USER DATA ====================
 USER_DATA = {}
@@ -256,10 +364,9 @@ def get_user_commission(chat_id):
     return LEVELS.get(level, LEVELS[0])["commission"]
 
 def get_token_reward(chat_id):
-    """Devuelve el porcentaje de token reward para el usuario (0.05% si es Elite/Legendary)"""
     level = get_user_level(chat_id)
-    if level >= 3:  # Elite o Legendary
-        return 0.0005  # 0.05%
+    if level >= 3:
+        return 0.0005
     return 0.0
 
 def get_user_insignia(chat_id):
@@ -326,7 +433,7 @@ def activate_premium(chat_id, plan_key):
     }
     save_subscribers(subscribers)
     logger.info(f"✅ Premium activated for {chat_id} with plan {plan_key} until {end}")
-    send_telegram(int(chat_id), f"🎉 *Premium Activated!*\n\nPlan: *{plan_key.capitalize()}*\nValid until: {end.strftime('%d/%m/%Y')}\n\nThank you for your payment. You now have access to all Premium features.")
+    send_telegram(int(chat_id), f"🎉 *Premium Activated!*\n\nPlan: *{plan_key.capitalize()}*\nValid until: {end.strftime('%d/%m/%Y')}\n\nThank you for your payment.")
     return True
 
 def get_user_email(chat_id):
@@ -368,11 +475,9 @@ This bot is an *analysis and automation tool*. **IT IS NOT A FINANCIAL ADVISOR**
 - Alerts, reports, and generated data are *purely informational*.
 - They do not constitute buy/sell/investment recommendations.
 - Cryptocurrency trading involves *high risk* of total capital loss.
-- Neither the bot creator nor its operators are responsible for financial losses arising from use of this tool.
+- Neither the bot creator nor its operators are responsible for financial losses.
 
-By using this bot, you accept full responsibility for your own investment decisions.
-
-Type `/accept` to confirm you have read and agree to these terms.
+Type `/accept` to confirm you have read and agree.
 """
     await update.message.reply_text(text, parse_mode="Markdown")
 
@@ -407,26 +512,17 @@ async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await start(update, context)
 
-# ==================== MARKET FUNCTIONS ====================
+# ==================== FUNCIONES DE MERCADO (MODIFICADAS CON CACHE) ====================
 def get_all_prices():
-    ids = ",".join([c[0] for c in COINS])
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd&include_24hr_change=true"
-    try:
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-        if r.status_code == 200:
-            return r.json()
-    except Exception as e:
-        logger.error(f"Price error: {e}")
-    return {}
+    """Versión ultrarrápida usando caché de WebSocket + fallback REST."""
+    return get_cached_prices()
 
 def get_coin_price_by_id(coin_id):
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
-    try:
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        if r.status_code == 200:
-            return r.json()[coin_id]["usd"]
-    except:
-        return None
+    """Obtiene precio de un coin específico usando caché."""
+    prices = get_all_prices()
+    if coin_id in prices:
+        return prices[coin_id].get("usd")
+    return None
 
 def send_telegram(chat_id, message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -520,7 +616,6 @@ def is_rate_limited(chat_id: int) -> bool:
     rate_limit_store[key].append(now)
     return False
 
-# Decorador universal para rate limiting
 def rate_limited():
     def decorator(func):
         @wraps(func)
@@ -804,7 +899,7 @@ async def show_status(query):
     if not prices:
         await query.edit_message_text("⚠️ Could not fetch data. Try again later.")
         return
-    message = "📊 *LIVE MARKET STATUS*\n\n"
+    message = "📊 *LIVE MARKET STATUS (WebSocket)*\n\n"
     for coin_id, symbol, name in COINS:
         if coin_id not in prices:
             continue
@@ -1143,7 +1238,7 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "🔵 *Arbitrum (ARB)*\nNo significant movements recently.\n\n"
 
-    output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
+    output += "💡 *Note:* Accumulation/distribution analyses are automatic."
 
     if all_alerts:
         keyboard = [
@@ -1169,7 +1264,7 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     arb_alerts = await asyncio.to_thread(obtener_alertas_arbitrum, 5000, 3)
 
     output = "📊 *RECENT WHALE MOVEMENTS*\n"
-    output += "_The following data is informational only. Not investment advice._\n\n"
+    output += "_The following data is informational only._\n\n"
 
     all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
     context.user_data["last_whale_alerts"] = all_alerts
@@ -1259,7 +1354,7 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "🔵 *Arbitrum (ARB)*\nNo significant movements recently.\n\n"
 
-    output += "💡 *Note:* Accumulation/distribution analyses are automatic and should not be taken as buy/sell recommendations."
+    output += "💡 *Note:* Accumulation/distribution analyses are automatic."
 
     if all_alerts:
         keyboard = [
@@ -1344,7 +1439,6 @@ async def execute_sniper(chat_id, alerts, context):
             slippage = max(0.5, s["slippage"] - 1.0)
             speed = "🛡️ Safe"
         
-        # Calcular comisión y token reward
         commission = get_user_commission(int(chat_id)) or 0.003
         token_reward = get_token_reward(int(chat_id))
         amount_usd = s['max_amount']
@@ -1477,7 +1571,6 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             trade_direction = "buy" if trade_direction == "sell" else "sell"
             emoji = "🔄" + emoji
         
-        # Calcular comisión y token reward
         commission = get_user_commission(int(chat_id)) or 0.003
         token_reward = get_token_reward(int(chat_id))
         fee = max_amount * commission
@@ -1567,7 +1660,6 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 amount = float(args[3])
                 stop_loss = float(args[4])
                 take_profit = float(args[5])
-            # SANITIZACIÓN
             condition = re.sub(r'[^a-zA-Z0-9_>\<=\s]', '', condition)
             if action not in ["buy", "sell"]:
                 await update.message.reply_text("❌ Action must be 'buy' or 'sell'")
@@ -1856,7 +1948,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         engine = TradingEngine(testnet=True)
         usdt_balance = engine.get_balance("USDT")
         btc_balance = engine.get_balance("BTC")
-        message = f"💰 *Testnet Balance*\nUSDT: ${usdt_balance:.2f}\nBTC: {btc_balance:.8f}\n\n⚠️ This is TESTNET balance (fake money). To trade real money, deposit on real Binance and use /activate."
+        message = f"💰 *Testnet Balance*\nUSDT: ${usdt_balance:.2f}\nBTC: {btc_balance:.8f}\n\n⚠️ This is TESTNET balance (fake money)."
         await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in balance: {e}")
@@ -1990,11 +2082,6 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_user_email(chat_id, email)
     await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
 
-# ==================== PAYMENT COMMAND (DESACTIVADO) ====================
-# async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-#     chat_id = update.effective_chat.id
-#     await update.message.reply_text("❌ Subscriptions have been removed. CryptoArch Agent is now 100% free with commission-based pricing.")
-
 # ==================== TRADING TESTNET ====================
 @rate_limited()
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2072,7 +2159,6 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid amount.")
         return
     try:
-        # Escudo Anti-Pánico
         try:
             fg_data = requests.get('https://api.alternative.me/fng/?limit=1').json()
             fear_value = int(fg_data['data'][0]['value'])
@@ -2324,7 +2410,6 @@ async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if MP_WEBHOOK_URL:
     webhook_app = Flask(__name__, template_folder='templates')
 
-    # Decorador para API Key
     def require_api_key(f):
         @wraps(f)
         def decorated(*args, **kwargs):
@@ -2465,7 +2550,6 @@ if MP_WEBHOOK_URL:
 # ==================== MAIN ====================
 if __name__ == "__main__":
     subscribers = load_subscribers()
-    # Ya no asignamos admin automáticamente porque viene de Railway
     if not supabase:
         logger.critical("❌ Supabase no conectado. El bot NO se iniciará por seguridad.")
         exit(1)
@@ -2478,12 +2562,27 @@ if __name__ == "__main__":
 
     reschedule_reports()
 
+    # Iniciar tarea asíncrona de WebSocket en el background
+    if WS_ENABLED:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.create_task(update_prices_from_websocket())
+            # Corremos el loop en un hilo separado para no bloquear
+            def run_ws_loop():
+                loop.run_forever()
+            threading.Thread(target=run_ws_loop, daemon=True).start()
+            logger.info("🔄 WebSocket price listener iniciado en background.")
+        except Exception as e:
+            logger.error(f"Error iniciando WebSocket: {e}")
+    else:
+        logger.info("ℹ️ WebSocket deshabilitado (WS_ENABLED=false). Usando REST.")
+
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("balance", balance))
     app.add_handler(CommandHandler("premium", premium))
-    # app.add_handler(CommandHandler("pay", pay))  # DESACTIVADO
     app.add_handler(CommandHandler("plans", plans_command))
     app.add_handler(CommandHandler("id", id_command))
     app.add_handler(CommandHandler("whale", whale))
@@ -2511,5 +2610,5 @@ if __name__ == "__main__":
             time.sleep(1)
     threading.Thread(target=run_schedule, daemon=True).start()
 
-    logger.info("🚀 Trading bot started successfully (secured version with rate limiting)")
+    logger.info("🚀 Trading bot started successfully (Fase 5: WebSockets + Velocidad Extrema)")
     app.run_polling()
