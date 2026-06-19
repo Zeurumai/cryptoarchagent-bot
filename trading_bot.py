@@ -9,6 +9,8 @@ import threading
 import asyncio
 import feedparser
 import re
+import hmac
+import hashlib
 from datetime import datetime, timedelta
 from flask import Flask, request, render_template, jsonify
 from dotenv import load_dotenv
@@ -27,6 +29,7 @@ from whale_advanced import (
 )
 from trading_engine import TradingEngine
 from supabase import create_client, Client
+from functools import wraps
 
 load_dotenv()
 
@@ -45,6 +48,24 @@ BINANCE_REFERRAL_LINK = os.getenv("BINANCE_REFERRAL_LINK", "https://www.binance.
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ==================== SEGURIDAD - CONFIGURACIÓN DESDE RAILWAY ====================
+ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "8355456581").split(",")))
+ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
+MP_WEBHOOK_SECRET = os.getenv("MP_WEBHOOK_SECRET", "")
+DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
+RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "20"))
+RATE_LIMIT_PERIOD = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
+
+# Validación CRÍTICA: si faltan secretos, el bot NO ARRANCA
+if not MP_WEBHOOK_SECRET:
+    raise ValueError("❌ MP_WEBHOOK_SECRET no está en Railway")
+if not DASHBOARD_API_KEY:
+    raise ValueError("❌ DASHBOARD_API_KEY no está en Railway")
+if not ADMIN_SECRET:
+    raise ValueError("❌ ADMIN_SECRET no está en Railway")
+
+logger.info("✅ Variables de seguridad cargadas correctamente")
+
 # ==================== COINS ====================
 COINS = [
     ("bitcoin", "BTC", "Bitcoin"),
@@ -53,7 +74,7 @@ COINS = [
     ("ripple", "XRP", "XRP"),
     ("binancecoin", "BNB", "BNB"),
     ("chainlink", "LINK", "Chainlink"),
-    ("avalanche-2", "AVAX", "Avalanche")
+    ("avalanche-2", "AVAX", "AVAX")
 ]
 
 # ==================== USER DATA ====================
@@ -485,9 +506,26 @@ def reschedule_reports():
                 schedule.every().day.at(hour).do(send_report, int(chat_id), report_type)
                 logger.info(f"Scheduled {report_type} report at {hour} for chat {chat_id}")
 
+# ==================== RATE LIMITING ====================
+rate_limit_store = {}
+
+def is_rate_limited(chat_id: int) -> bool:
+    now = time.time()
+    key = f"rate_{chat_id}"
+    if key not in rate_limit_store:
+        rate_limit_store[key] = []
+    rate_limit_store[key] = [t for t in rate_limit_store[key] if t > now - RATE_LIMIT_PERIOD]
+    if len(rate_limit_store[key]) >= RATE_LIMIT_REQUESTS:
+        return True
+    rate_limit_store[key].append(now)
+    return False
+
 # ==================== BOT HANDLERS ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    if is_rate_limited(chat_id):
+        await update.message.reply_text("⏳ Demasiadas peticiones. Espera un momento.")
+        return
     if not has_accepted_terms(chat_id):
         await terms_command(update, context)
         return
@@ -553,6 +591,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     chat_id = update.effective_chat.id
 
+    if is_rate_limited(chat_id):
+        await query.edit_message_text("⏳ Demasiadas peticiones. Espera.")
+        return
+
     if data == "status":
         await show_status(query)
     elif data == "alerts_list":
@@ -593,7 +635,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message = f"💰 *Testnet Balance*\nUSDT: ${usdt_balance:.2f}\nBTC: {btc_balance:.8f}\n\n⚠️ This is TESTNET balance (fake money). To trade real money, deposit on real Binance and use /activate."
             await query.edit_message_text(message, parse_mode="Markdown")
         except Exception as e:
-            await query.edit_message_text(f"❌ Error: {e}. Check your Binance Testnet API keys in .env", parse_mode="Markdown")
+            logger.error(f"Error en balance: {e}")
+            await query.edit_message_text("❌ Error interno. Intenta más tarde.", parse_mode="Markdown")
     elif data == "premium":
         level = get_user_level(chat_id)
         if level >= 1:
@@ -973,6 +1016,10 @@ Use /plan to check your level.
 
 # ==================== WHALE FUNCTIONS ====================
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if is_rate_limited(chat_id):
+        await update.message.reply_text("⏳ Demasiadas peticiones. Espera.")
+        return
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
 
     btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
@@ -1098,9 +1145,9 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(output, parse_mode="Markdown")
 
-    chat_id = str(update.effective_chat.id)
-    await evaluate_rules(chat_id, all_alerts, context)
-    await execute_sniper(chat_id, all_alerts, context)
+    chat_id_str = str(update.effective_chat.id)
+    await evaluate_rules(chat_id_str, all_alerts, context)
+    await execute_sniper(chat_id_str, all_alerts, context)
 
 async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1214,9 +1261,9 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.edit_message_text(output, parse_mode="Markdown")
 
-    chat_id = str(update.effective_chat.id)
-    await evaluate_rules(chat_id, all_alerts, context)
-    await execute_sniper(chat_id, all_alerts, context)
+    chat_id_str = str(update.effective_chat.id)
+    await evaluate_rules(chat_id_str, all_alerts, context)
+    await execute_sniper(chat_id_str, all_alerts, context)
 
 async def evaluate_rules(chat_id, alerts, context):
     if not supabase:
@@ -1345,7 +1392,8 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="Markdown"
                 )
         except Exception as e:
-            await update.message.reply_text(f"❌ Error loading settings: {e}")
+            logger.error(f"Error loading copy settings: {e}")
+            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
         return
     try:
         if len(args) < 4:
@@ -1381,7 +1429,8 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("❌ Invalid number format. Use decimal points (ej: 20.5)")
     except Exception as e:
-        await update.message.reply_text(f"❌ Error saving settings: {e}")
+        logger.error(f"Error saving copy settings: {e}")
+        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
 
 async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1437,7 +1486,8 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="Markdown"
         )
     except Exception as e:
-        await query.edit_message_text(f"❌ Error: {e}")
+        logger.error(f"Error in copy_whale_callback: {e}")
+        await query.edit_message_text("❌ Error interno. Intenta más tarde.")
 
 # ==================== RULES ====================
 async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1466,7 +1516,8 @@ async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "/rule delete [id] - Delete rule"
         await update.message.reply_text(text, parse_mode="Markdown")
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        logger.error(f"Error in rules_menu: {e}")
+        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
 
 async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
@@ -1504,6 +1555,8 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 amount = float(args[3])
                 stop_loss = float(args[4])
                 take_profit = float(args[5])
+            # SANITIZACIÓN
+            condition = re.sub(r'[^a-zA-Z0-9_>\<=\s]', '', condition)
             if action not in ["buy", "sell"]:
                 await update.message.reply_text("❌ Action must be 'buy' or 'sell'")
                 return
@@ -1527,7 +1580,8 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
         except Exception as e:
-            await update.message.reply_text(f"❌ Error adding rule: {e}")
+            logger.error(f"Error adding rule: {e}")
+            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
     elif subcommand == "list":
         try:
             rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
@@ -1542,7 +1596,8 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text += f"   📌 `/rule toggle {r['id']}` · `/rule delete {r['id']}`\n\n"
             await update.message.reply_text(text, parse_mode="Markdown")
         except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
+            logger.error(f"Error listing rules: {e}")
+            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
     elif subcommand == "toggle":
         if len(args) < 2:
             await update.message.reply_text("❌ Usage: `/rule toggle [id]`")
@@ -1566,7 +1621,8 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             await update.message.reply_text("❌ Invalid ID. Use `/rule list` to see your rule IDs.")
         except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
+            logger.error(f"Error toggling rule: {e}")
+            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
     elif subcommand == "delete":
         if len(args) < 2:
             await update.message.reply_text("❌ Usage: `/rule delete [id]`")
@@ -1584,7 +1640,8 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             await update.message.reply_text("❌ Invalid ID. Use `/rule list` to see your rule IDs.")
         except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
+            logger.error(f"Error deleting rule: {e}")
+            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
     else:
         await update.message.reply_text("❌ Unknown subcommand. Use: add, list, toggle, delete")
 
@@ -1615,7 +1672,8 @@ async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         await update.message.reply_text(text, parse_mode="Markdown")
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        logger.error(f"Error in snipe_settings_menu: {e}")
+        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
 
 async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
@@ -1662,19 +1720,22 @@ async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
         except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
+            logger.error(f"Error saving snipe settings: {e}")
+            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
     elif subcommand == "on":
         try:
             supabase.table("snipe_settings").update({"active": True}).eq("chat_id", chat_id).execute()
             await update.message.reply_text("✅ Snipe activated.")
         except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
+            logger.error(f"Error activating snipe: {e}")
+            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
     elif subcommand == "off":
         try:
             supabase.table("snipe_settings").update({"active": False}).eq("chat_id", chat_id).execute()
             await update.message.reply_text("✅ Snipe paused.")
         except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
+            logger.error(f"Error pausing snipe: {e}")
+            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
     else:
         await update.message.reply_text("❌ Unknown subcommand. Use: set, on, off")
 
@@ -1719,7 +1780,8 @@ async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="Markdown"
                 )
         except Exception as e:
-            await update.message.reply_text(f"❌ Error loading settings: {e}")
+            logger.error(f"Error loading sniper settings: {e}")
+            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
         return
 
     try:
@@ -1765,7 +1827,8 @@ async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
     except Exception as e:
-        await update.message.reply_text(f"❌ Error saving settings: {e}")
+        logger.error(f"Error saving sniper settings: {e}")
+        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
 
 # ==================== COMANDOS ====================
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1780,7 +1843,8 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = f"💰 *Testnet Balance*\nUSDT: ${usdt_balance:.2f}\nBTC: {btc_balance:.8f}\n\n⚠️ This is TESTNET balance (fake money). To trade real money, deposit on real Binance and use /activate."
         await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}. Check your Binance Testnet API keys in .env", parse_mode="Markdown")
+        logger.error(f"Error in balance: {e}")
+        await update.message.reply_text("❌ Error interno. Intenta más tarde.", parse_mode="Markdown")
 
 async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -1868,7 +1932,7 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in /info: {e}")
-        await update.message.reply_text("❌ Error fetching data.")
+        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
 
 async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📰 *Fetching latest news...*", parse_mode="Markdown")
@@ -1914,6 +1978,9 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================== TRADING TESTNET ====================
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    if is_rate_limited(chat_id):
+        await update.message.reply_text("⏳ Demasiadas peticiones. Espera.")
+        return
     level = get_user_level(chat_id)
     if level == -1:
         await update.message.reply_text(
@@ -1957,10 +2024,14 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount}
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        logger.error(f"Error in buy: {e}")
+        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
 
 async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    if is_rate_limited(chat_id):
+        await update.message.reply_text("⏳ Demasiadas peticiones. Espera.")
+        return
     level = get_user_level(chat_id)
     if level == -1:
         await update.message.reply_text(
@@ -2025,7 +2096,8 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount}
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        logger.error(f"Error in sell: {e}")
+        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
 
 async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
@@ -2151,7 +2223,8 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message += "👑 You are ELITE! You receive 0.05% of all bot commissions in $CARCH tokens."
         await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
-        await update.message.reply_text(f"❌ Error checking balance: {e}\nMake sure your Binance Testnet API keys are correct in .env.", parse_mode="Markdown")
+        logger.error(f"Error in activate: {e}")
+        await update.message.reply_text("❌ Error interno. Intenta más tarde.", parse_mode="Markdown")
 
 async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -2190,22 +2263,25 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message, parse_mode="Markdown")
 
 # ==================== ADMIN COMMAND ====================
-ADMIN_IDS = [8355456581]
-
 async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     if chat_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Not authorized.")
+        await update.message.reply_text("❌ No autorizado.")
         return
     args = context.args
-    if len(args) < 2:
-        await update.message.reply_text("Usage: /force_premium ID LEVEL (0-4)")
+    if len(args) < 3:
+        await update.message.reply_text("❌ Uso: /force_premium ID NIVEL CODIGO_SECRETO\nEjemplo: /force_premium 123456789 3 MiClaveSecreta")
         return
     try:
         target_id = int(args[0])
         level = int(args[1])
+        provided_secret = args[2]
+        if provided_secret != ADMIN_SECRET:
+            await update.message.reply_text("❌ Código secreto incorrecto. Acción denegada.")
+            logger.warning(f"Intento fallido de /force_premium desde {chat_id}")
+            return
         if level < 0 or level > 4:
-            await update.message.reply_text("Level must be 0-4.")
+            await update.message.reply_text("❌ Nivel debe ser 0-4.")
             return
         subscribers = load_subscribers()
         subscribers[str(target_id)] = {
@@ -2218,36 +2294,62 @@ async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "end": (datetime.now() + timedelta(days=365)).isoformat()
         }
         save_subscribers(subscribers)
-        await update.message.reply_text(f"✅ User {target_id} set to level {level} ({LEVELS[level]['name']})")
+        await update.message.reply_text(f"✅ Usuario {target_id} actualizado a nivel {level} ({LEVELS[level]['name']})")
+        logger.info(f"ADMIN: {chat_id} actualizó a {target_id} a nivel {level}")
+    except ValueError:
+        await update.message.reply_text("❌ ID o nivel inválido.")
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        logger.error(f"Error en force_premium: {e}")
+        await update.message.reply_text("❌ Error interno.")
 
 # ==================== WEBHOOK + WEB TERMINAL ====================
 if MP_WEBHOOK_URL:
     webhook_app = Flask(__name__, template_folder='templates')
 
+    # Decorador para API Key
+    def require_api_key(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            provided_key = request.headers.get('X-API-Key')
+            if not provided_key or provided_key != DASHBOARD_API_KEY:
+                return jsonify({"error": "No autorizado"}), 401
+            return f(*args, **kwargs)
+        return decorated
+
     @webhook_app.route('/webhook', methods=['POST'])
     def webhook():
-        data = request.json
-        logger.info(f"📩 Webhook notification: {data}")
+        x_signature = request.headers.get('x-signature')
+        x_request_id = request.headers.get('x-request-id')
+        
+        if not x_signature or not x_request_id:
+            logger.warning("Webhook sin firma")
+            return "Firma faltante", 401
+        
+        raw_data = request.get_data()
+        secret = MP_WEBHOOK_SECRET.encode('utf-8')
+        computed = hmac.new(secret, raw_data, hashlib.sha256).hexdigest()
+        
+        if not hmac.compare_digest(computed, x_signature):
+            logger.warning(f"Firma inválida en webhook")
+            return "Firma inválida", 401
+        
         try:
+            data = request.json
+            logger.info(f"📩 Webhook autenticado: {data}")
             if data.get("type") == "payment":
                 payment_id = data["data"]["id"]
                 sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
                 payment_response = sdk.payment().get(payment_id)
                 payment_data = payment_response["response"]
-                external_ref = payment_data.get("external_reference")
                 status = payment_data.get("status")
-                if status == "approved" and external_ref:
-                    parts = external_ref.split(":")
-                    if len(parts) == 2:
-                        chat_id_str, plan_key = parts
-                        chat_id = int(chat_id_str)
-                        activate_premium(chat_id, plan_key)
+                ext = payment_data.get("external_reference")
+                if status == "approved" and ext and ":" in ext:
+                    chat_id_str, plan_key = ext.split(":")
+                    activate_premium(int(chat_id_str), plan_key)
             return "OK", 200
         except Exception as e:
             logger.error(f"Webhook error: {e}")
-            return "Error", 500
+            return "Error interno", 500
 
     @webhook_app.route('/ping')
     def ping():
@@ -2263,6 +2365,7 @@ if MP_WEBHOOK_URL:
             return f"Error loading dashboard: {e}", 500
 
     @webhook_app.route('/api/stats/<chat_id>')
+    @require_api_key
     def get_stats(chat_id):
         if not supabase:
             return jsonify({"error": "Database not connected"}), 500
@@ -2281,9 +2384,10 @@ if MP_WEBHOOK_URL:
             return jsonify(stats.data[0])
         except Exception as e:
             logger.error(f"Error getting stats: {e}")
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": "Error interno"}), 500
 
     @webhook_app.route('/api/settings/<chat_id>')
+    @require_api_key
     def get_settings(chat_id):
         if not supabase:
             return jsonify({"error": "Database not connected"}), 500
@@ -2298,9 +2402,10 @@ if MP_WEBHOOK_URL:
             })
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": "Error interno"}), 500
 
     @webhook_app.route('/api/update_sniper', methods=['POST'])
+    @require_api_key
     def update_sniper():
         if not supabase:
             return jsonify({"error": "Database not connected"}), 500
@@ -2315,9 +2420,10 @@ if MP_WEBHOOK_URL:
             return jsonify({"success": True})
         except Exception as e:
             logger.error(f"Error updating sniper: {e}")
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": "Error interno"}), 500
 
     @webhook_app.route('/api/update_copy', methods=['POST'])
+    @require_api_key
     def update_copy():
         if not supabase:
             return jsonify({"error": "Database not connected"}), 500
@@ -2332,7 +2438,7 @@ if MP_WEBHOOK_URL:
             return jsonify({"success": True})
         except Exception as e:
             logger.error(f"Error updating copy: {e}")
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": "Error interno"}), 500
 
     def run_webhook():
         port = int(os.getenv("PORT", 5000))
@@ -2341,19 +2447,10 @@ if MP_WEBHOOK_URL:
 # ==================== MAIN ====================
 if __name__ == "__main__":
     subscribers = load_subscribers()
-    admin_id = str(8355456581)
-    if admin_id not in subscribers or subscribers[admin_id].get("deposit_level", 0) < 3:
-        subscribers[admin_id] = {
-            "plan": "free",
-            "deposit_level": 3,
-            "commission_rate": 0.003,
-            "insignia": "👑",
-            "active": True,
-            "start": datetime.now().isoformat(),
-            "end": (datetime.now() + timedelta(days=365)).isoformat()
-        }
-        save_subscribers(subscribers)
-        logger.info("👑 Admin set to ELITE level (0.3% commission + token reward)")
+    # Ya no asignamos admin automáticamente porque viene de Railway
+    if not supabase:
+        logger.critical("❌ Supabase no conectado. El bot NO se iniciará por seguridad.")
+        exit(1)
 
     if MP_WEBHOOK_URL:
         threading.Thread(target=run_webhook, daemon=True).start()
@@ -2396,5 +2493,5 @@ if __name__ == "__main__":
             time.sleep(1)
     threading.Thread(target=run_schedule, daemon=True).start()
 
-    logger.info("🚀 Trading bot started successfully")
+    logger.info("🚀 Trading bot started successfully (secured version)")
     app.run_polling()
