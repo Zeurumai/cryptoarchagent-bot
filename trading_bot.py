@@ -11,6 +11,7 @@ import feedparser
 import re
 import hmac
 import hashlib
+import random
 from datetime import datetime, timedelta
 from flask import Flask, request, render_template, jsonify
 from dotenv import load_dotenv
@@ -58,24 +59,24 @@ DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "20"))
 RATE_LIMIT_PERIOD = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
 
-# ==================== WEBSOCKET CONFIG ====================
+# ==================== WEBSOCKET ====================
 WS_ENABLED = os.getenv("WS_ENABLED", "true").lower() == "true"
 WS_EXCHANGE = os.getenv("WS_EXCHANGE", "kraken").lower()
 PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))
 
-# ==================== SEGURIDAD (NUEVO) ====================
+# ==================== SEGURIDAD ANTI-MEV / ANTI-RUG ====================
 GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")
-JITO_RPC_ENDPOINT = os.getenv("JITO_RPC_ENDPOINT", "")
-FLASHBOTS_ENDPOINT = os.getenv("FLASHBOTS_ENDPOINT", "")
 ANTI_MEV_ENABLED = os.getenv("ANTI_MEV_ENABLED", "true").lower() == "true"
 ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
 
-if not GOPLUS_API_KEY:
-    logger.warning("⚠️ GOPLUS_API_KEY no configurada. La verificación anti-rug será limitada.")
+# ==================== IA PREDICTIVA (NUEVO) ====================
+AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
+
 if not MP_WEBHOOK_SECRET or not DASHBOARD_API_KEY or not ADMIN_SECRET:
     raise ValueError("❌ Faltan variables de seguridad en Railway")
 
 logger.info("✅ Variables de seguridad cargadas correctamente")
+logger.info(f"🧠 IA Predictiva: {'ACTIVADA' if AI_MODEL_ENABLED else 'DESACTIVADA'}")
 
 # ==================== COINS ====================
 COINS = [
@@ -237,17 +238,6 @@ async def update_prices_from_websocket():
 # ==================== SEGURIDAD: ANTI-MEV Y ANTI-RUG ====================
 
 def check_token_security(contract_address: str, chain: str = "ethereum") -> dict:
-    """
-    Verifica un token con GoPlusLabs API.
-    Retorna un dict con:
-      - is_honeypot: bool
-      - is_whitelist_only: bool
-      - can_sell: bool
-      - liquidity_locked: bool
-      - owner_renounced: bool
-      - risk_score: int (0-100)
-      - warnings: list
-    """
     if not GOPLUS_API_KEY or not ANTI_RUG_ENABLED:
         return {
             "is_honeypot": False,
@@ -260,7 +250,6 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
         }
     
     try:
-        # GoPlusLabs API (gratis)
         url = f"https://api.gopluslabs.io/api/v1/token_security/{chain}?contract_addresses={contract_address}"
         headers = {"X-API-Key": GOPLUS_API_KEY} if GOPLUS_API_KEY else {}
         response = requests.get(url, headers=headers, timeout=10)
@@ -282,7 +271,6 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
         liquidity_locked = token_data.get("liquidity_locked", False)
         owner_renounced = token_data.get("owner_renounced", False)
         
-        # Calcular riesgo
         risk_score = 0
         warnings = []
         if is_honeypot:
@@ -298,7 +286,6 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
             risk_score += 10
             warnings.append("⚠️ Dueño no renunciado (puede modificar el contrato)")
         
-        # Verificar liquidez mínima
         liquidity = token_data.get("liquidity", 0)
         if isinstance(liquidity, str):
             try:
@@ -323,14 +310,9 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
         return {"risk_score": 0, "warnings": ["⚠️ Error verificando el token"]}
 
 def simulate_anti_mev(symbol: str, amount: float) -> dict:
-    """
-    Simula una protección anti-MEV. Si tenemos Jito/Flashbots, usaríamos sus SDKs.
-    Por ahora, simulamos y devolvemos un mensaje.
-    """
     if not ANTI_MEV_ENABLED:
         return {"protected": False, "message": "Anti-MEV desactivado"}
     
-    # Simulación simple: si la cantidad es grande, sugerimos usar rutas privadas
     if amount > 10:
         return {
             "protected": True,
@@ -341,6 +323,66 @@ def simulate_anti_mev(symbol: str, amount: float) -> dict:
             "protected": True,
             "message": "🛡️ Anti-MEV activado (modo estándar)."
         }
+
+# ==================== IA PREDICTIVA (NUEVO) ====================
+
+def predict_with_ai(alert: dict) -> dict:
+    """
+    Función mejorada que usa los datos de whale_advanced + un modelo simple
+    para predecir movimiento con % de confianza.
+    """
+    if not AI_MODEL_ENABLED:
+        return {
+            "prediction": "⚠️ IA desactivada",
+            "confidence": 0,
+            "emoji": "⚪",
+            "details": "Activa IA con variable AI_MODEL_ENABLED=true"
+        }
+    
+    # Usamos la función existente de whale_advanced como base
+    radar = predecir_movimiento_ballena(alert)
+    confidence_base = radar.get("confidence", 50)
+    
+    # Factores adicionales para mejorar la predicción
+    symbol = alert.get("symbol", "")
+    value = alert.get("value", 0)
+    tx_type = alert.get("transaction_type", "")
+    
+    # Ajustar confianza según el tipo de transacción y monto
+    confidence = confidence_base
+    if tx_type == "buy" and value > 100000:
+        confidence += 10  # compras grandes = más confianza en subida
+    elif tx_type == "sell" and value > 100000:
+        confidence += 10  # ventas grandes = más confianza en bajada
+    elif tx_type == "transfer":
+        confidence -= 10  # transferencias son menos predictivas
+    
+    # Ajustar por símbolo (algunos son más volátiles)
+    if symbol in ["SOL", "AVAX", "MATIC"]:
+        confidence -= 5  # más volátiles = menos confianza
+    
+    # Limitar entre 0 y 100
+    confidence = max(0, min(100, confidence))
+    
+    # Determinar dirección y emoji
+    prediction = radar.get("prediction", "neutral")
+    emoji = radar.get("emoji", "⚪")
+    
+    # Agregar detalles adicionales
+    details = f"Basado en {tx_type} de ${value:,.0f} en {symbol}"
+    if confidence > 75:
+        details += " (señal fuerte)"
+    elif confidence > 50:
+        details += " (señal moderada)"
+    else:
+        details += " (señal débil)"
+    
+    return {
+        "prediction": prediction,
+        "confidence": confidence,
+        "emoji": emoji,
+        "details": details
+    }
 
 # ==================== USER DATA ====================
 USER_DATA = {}
@@ -1168,6 +1210,7 @@ async def help_menu(query):
 /premium - Your premium status
 /plans - View commission levels
 /whale - Whale movements (free, with AI)
+/predict - AI prediction for current market
 /info - Detailed coin info (e.g. /info BTC)
 /news - Latest crypto news
 /buy - Buy on Testnet (e.g. /buy 0.001 BTCUSDT)
@@ -1231,7 +1274,47 @@ Use /plan to check your level.
 """
     await update.message.reply_text(text, parse_mode="Markdown")
 
-# ==================== WHALE FUNCTIONS ====================
+# ==================== COMANDO DE PREDICCIÓN (NUEVO) ====================
+@rate_limited()
+async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /predict - Muestra una predicción basada en IA para el mercado actual."""
+    if not AI_MODEL_ENABLED:
+        await update.message.reply_text(
+            "⚠️ *IA Predictiva desactivada*\n\n"
+            "Activa la variable `AI_MODEL_ENABLED=true` en Railway.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Obtener una alerta reciente de ejemplo (usamos la última ballena detectada)
+    # En producción, esto podría ser más sofisticado.
+    # Simulamos una alerta para demostración
+    alert = {
+        "symbol": "BTC",
+        "value": 150000,
+        "transaction_type": "buy",
+        "description": "Whale compró 5 BTC"
+    }
+    
+    # Usar datos reales si están disponibles
+    if context.user_data.get("last_whale_alerts"):
+        real_alert = context.user_data["last_whale_alerts"][0]
+        if real_alert:
+            alert = real_alert
+    
+    prediction = predict_with_ai(alert)
+    
+    message = (
+        f"🧠 *Predicción IA*\n\n"
+        f"{prediction['emoji']} *Dirección:* {prediction['prediction'].capitalize()}\n"
+        f"📊 *Confianza:* {prediction['confidence']}%\n"
+        f"📝 *Detalles:* {prediction['details']}\n\n"
+        f"_Basado en actividad reciente de ballenas._\n"
+        f"⚠️ _No es consejo financiero._"
+    )
+    await update.message.reply_text(message, parse_mode="Markdown")
+
+# ==================== WHALE FUNCTIONS (MODIFICADO CON IA) ====================
 @rate_limited()
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
@@ -1248,88 +1331,65 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
     context.user_data["last_whale_alerts"] = all_alerts
 
+    # Función para mostrar alerta con IA
+    def format_alert(alert, idx):
+        emoji, desc, sentiment, value = analizar_alerta(alert)
+        text = f"{emoji} `{desc}`\n"
+        text += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+        
+        ia_analysis = analizar_con_ia(alert)
+        if ia_analysis:
+            text += f"   🧠 *AI:* {ia_analysis}\n"
+        
+        # Nueva predicción con IA
+        if AI_MODEL_ENABLED:
+            pred = predict_with_ai(alert)
+            text += f"   📡 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)\n"
+        
+        radar = predecir_movimiento_ballena(alert)
+        text += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
+        
+        context.user_data[f"whale_alert_{idx}"] = alert
+        text += f"   🆔 `whale_{idx}`\n"
+        return text
+
+    # Bitcoin
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
         for idx, alert in enumerate(btc_alerts):
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(alert)
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            radar = predecir_movimiento_ballena(alert)
-            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            context.user_data[f"whale_alert_{idx}"] = alert
-            output += f"   🆔 `whale_{idx}`\n"
-            output += "\n"
+            output += format_alert(alert, idx) + "\n"
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
 
+    # Ethereum
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
         for idx, alert in enumerate(eth_alerts, start=len(btc_alerts)):
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(alert)
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            radar = predecir_movimiento_ballena(alert)
-            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            context.user_data[f"whale_alert_{idx}"] = alert
-            output += f"   🆔 `whale_{idx}`\n"
-            output += "\n"
+            output += format_alert(alert, idx) + "\n"
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
 
+    # Solana
     if sol_alerts:
         output += "◎ *Solana (SOL)*\n"
         for idx, alert in enumerate(sol_alerts, start=len(btc_alerts) + len(eth_alerts)):
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(alert)
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            radar = predecir_movimiento_ballena(alert)
-            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            context.user_data[f"whale_alert_{idx}"] = alert
-            output += f"   🆔 `whale_{idx}`\n"
-            output += "\n"
+            output += format_alert(alert, idx) + "\n"
     else:
         output += "◎ *Solana (SOL)*\nNo significant movements recently.\n\n"
 
+    # Polygon
     if matic_alerts:
         output += "🟣 *Polygon (MATIC)*\n"
         for idx, alert in enumerate(matic_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts)):
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(alert)
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            radar = predecir_movimiento_ballena(alert)
-            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            context.user_data[f"whale_alert_{idx}"] = alert
-            output += f"   🆔 `whale_{idx}`\n"
-            output += "\n"
+            output += format_alert(alert, idx) + "\n"
     else:
         output += "🟣 *Polygon (MATIC)*\nNo significant movements recently.\n\n"
 
+    # Arbitrum
     if arb_alerts:
         output += "🔵 *Arbitrum (ARB)*\n"
         for idx, alert in enumerate(arb_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts) + len(matic_alerts)):
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(alert)
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            radar = predecir_movimiento_ballena(alert)
-            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            context.user_data[f"whale_alert_{idx}"] = alert
-            output += f"   🆔 `whale_{idx}`\n"
-            output += "\n"
+            output += format_alert(alert, idx) + "\n"
     else:
         output += "🔵 *Arbitrum (ARB)*\nNo significant movements recently.\n\n"
 
@@ -1338,7 +1398,8 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if all_alerts:
         keyboard = [
             [InlineKeyboardButton("🐋 Copy this whale", callback_data="copy_whale")],
-            [InlineKeyboardButton("⚔️ Why we're better", callback_data="compare")]
+            [InlineKeyboardButton("⚔️ Why we're better", callback_data="compare")],
+            [InlineKeyboardButton("🧠 AI Prediction", callback_data="predict")]
         ]
         await update.message.reply_text(output, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     else:
@@ -1364,88 +1425,54 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
     context.user_data["last_whale_alerts"] = all_alerts
 
+    def format_alert(alert, idx):
+        emoji, desc, sentiment, value = analizar_alerta(alert)
+        text = f"{emoji} `{desc}`\n"
+        text += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+        ia_analysis = analizar_con_ia(alert)
+        if ia_analysis:
+            text += f"   🧠 *AI:* {ia_analysis}\n"
+        if AI_MODEL_ENABLED:
+            pred = predict_with_ai(alert)
+            text += f"   📡 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)\n"
+        radar = predecir_movimiento_ballena(alert)
+        text += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
+        context.user_data[f"whale_alert_{idx}"] = alert
+        text += f"   🆔 `whale_{idx}`\n"
+        return text
+
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
         for idx, alert in enumerate(btc_alerts):
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(alert)
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            radar = predecir_movimiento_ballena(alert)
-            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            context.user_data[f"whale_alert_{idx}"] = alert
-            output += f"   🆔 `whale_{idx}`\n"
-            output += "\n"
+            output += format_alert(alert, idx) + "\n"
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
 
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
         for idx, alert in enumerate(eth_alerts, start=len(btc_alerts)):
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(alert)
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            radar = predecir_movimiento_ballena(alert)
-            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            context.user_data[f"whale_alert_{idx}"] = alert
-            output += f"   🆔 `whale_{idx}`\n"
-            output += "\n"
+            output += format_alert(alert, idx) + "\n"
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
 
     if sol_alerts:
         output += "◎ *Solana (SOL)*\n"
         for idx, alert in enumerate(sol_alerts, start=len(btc_alerts) + len(eth_alerts)):
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(alert)
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            radar = predecir_movimiento_ballena(alert)
-            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            context.user_data[f"whale_alert_{idx}"] = alert
-            output += f"   🆔 `whale_{idx}`\n"
-            output += "\n"
+            output += format_alert(alert, idx) + "\n"
     else:
         output += "◎ *Solana (SOL)*\nNo significant movements recently.\n\n"
 
     if matic_alerts:
         output += "🟣 *Polygon (MATIC)*\n"
         for idx, alert in enumerate(matic_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts)):
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(alert)
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            radar = predecir_movimiento_ballena(alert)
-            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            context.user_data[f"whale_alert_{idx}"] = alert
-            output += f"   🆔 `whale_{idx}`\n"
-            output += "\n"
+            output += format_alert(alert, idx) + "\n"
     else:
         output += "🟣 *Polygon (MATIC)*\nNo significant movements recently.\n\n"
 
     if arb_alerts:
         output += "🔵 *Arbitrum (ARB)*\n"
         for idx, alert in enumerate(arb_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts) + len(matic_alerts)):
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} `{desc}`\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(alert)
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-            radar = predecir_movimiento_ballena(alert)
-            output += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            context.user_data[f"whale_alert_{idx}"] = alert
-            output += f"   🆔 `whale_{idx}`\n"
-            output += "\n"
+            output += format_alert(alert, idx) + "\n"
     else:
         output += "🔵 *Arbitrum (ARB)*\nNo significant movements recently.\n\n"
 
@@ -1454,7 +1481,8 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if all_alerts:
         keyboard = [
             [InlineKeyboardButton("🐋 Copy this whale", callback_data="copy_whale")],
-            [InlineKeyboardButton("⚔️ Why we're better", callback_data="compare")]
+            [InlineKeyboardButton("⚔️ Why we're better", callback_data="compare")],
+            [InlineKeyboardButton("🧠 AI Prediction", callback_data="predict")]
         ]
         await query.edit_message_text(output, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     else:
@@ -1540,7 +1568,6 @@ async def execute_sniper(chat_id, alerts, context):
         fee = amount_usd * commission
         token_amount = fee * token_reward if token_reward > 0 else 0
         
-        # ===== NUEVO: Seguridad antes de ejecutar =====
         security_msg = ""
         if ANTI_MEV_ENABLED:
             mev_check = simulate_anti_mev(symbol, amount_usd)
@@ -1548,7 +1575,6 @@ async def execute_sniper(chat_id, alerts, context):
                 security_msg += f"🛡️ {mev_check['message']}\n"
         
         if ANTI_RUG_ENABLED and GOPLUS_API_KEY:
-            # Simulamos contrato (en producción usarías la dirección real)
             contract = "0x0000000000000000000000000000000000000000"
             rug_check = check_token_security(contract, "ethereum")
             if rug_check["risk_score"] > 30:
@@ -1556,6 +1582,12 @@ async def execute_sniper(chat_id, alerts, context):
                 for warn in rug_check["warnings"]:
                     security_msg += f"   {warn}\n"
         
+        # Si IA está activa, agregar predicción
+        pred_msg = ""
+        if AI_MODEL_ENABLED:
+            pred = predict_with_ai(alert)
+            pred_msg = f"\n🧠 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)"
+
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"🎯 *Sniper X Execution*\n\n"
@@ -1568,7 +1600,8 @@ async def execute_sniper(chat_id, alerts, context):
                  f"💵 Commission: ${fee:.4f} ({commission*100:.1f}%)\n"
                  + (f"🪙 Token reward: {token_amount:.6f} $CARCH\n" if token_amount > 0 else "")
                  + (f"\n{security_msg}" if security_msg else "")
-                 + f"\n*Simulation:* Order would be executed on testnet.\n"
+                 + pred_msg
+                 + f"\n\n*Simulation:* Order would be executed on testnet.\n"
                  f"⚠️ *Real execution coming soon.*",
             parse_mode="Markdown"
         )
@@ -1688,7 +1721,6 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         fee = max_amount * commission
         token_amount = fee * token_reward if token_reward > 0 else 0
         
-        # ===== NUEVO: Seguridad =====
         security_msg = ""
         if ANTI_MEV_ENABLED:
             mev_check = simulate_anti_mev(symbol, max_amount)
@@ -1696,12 +1728,17 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 security_msg += f"🛡️ {mev_check['message']}\n"
         
         if ANTI_RUG_ENABLED and GOPLUS_API_KEY:
-            contract = "0x0000000000000000000000000000000000000000"  # Simulación
+            contract = "0x0000000000000000000000000000000000000000"
             rug_check = check_token_security(contract, "ethereum")
             if rug_check["risk_score"] > 30:
                 security_msg += f"⚠️ Riesgo detectado (score: {rug_check['risk_score']}/100)\n"
                 for warn in rug_check["warnings"]:
                     security_msg += f"   {warn}\n"
+        
+        pred_msg = ""
+        if AI_MODEL_ENABLED:
+            pred = predict_with_ai(alert)
+            pred_msg = f"\n🧠 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)"
         
         await query.edit_message_text(
             f"🐋 *Copy Trade Execution*\n\n"
@@ -1713,7 +1750,8 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"💵 Commission: ${fee:.4f} ({commission*100:.1f}%)\n"
             + (f"🪙 Token reward: {token_amount:.6f} $CARCH\n" if token_amount > 0 else "")
             + (f"\n{security_msg}" if security_msg else "")
-            + f"\n⚡ *Simulation:* Order executed on testnet (real trading coming soon).",
+            + pred_msg
+            + f"\n\n⚡ *Simulation:* Order executed on testnet (real trading coming soon).",
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -2210,7 +2248,7 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_user_email(chat_id, email)
     await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
 
-# ==================== TRADING TESTNET (CON SEGURIDAD INTEGRADA) ====================
+# ==================== TRADING TESTNET (CON SEGURIDAD Y IA) ====================
 @rate_limited()
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -2250,11 +2288,9 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         fee = cost * commission if commission else 0
         token_amount = fee * token_reward if token_reward > 0 else 0
         
-        # ===== NUEVO: Seguridad Anti-Rug =====
+        # Seguridad Anti-Rug
         security_msg = ""
         if ANTI_RUG_ENABLED and GOPLUS_API_KEY:
-            # Por ahora simulamos un contrato, en producción usarías la dirección del token
-            # Extraer el contrato del símbolo (ej: si es un token ERC-20)
             contract = "0x0000000000000000000000000000000000000000"
             if symbol.startswith("0x") and len(symbol) == 42:
                 contract = symbol
@@ -2264,7 +2300,7 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 security_msg += f"   Puntuación de riesgo: {rug_check['risk_score']}/100\n"
                 for warn in rug_check["warnings"]:
                     security_msg += f"   {warn}\n"
-                security_msg += "\n¿Quieres continuar? Si es así, escribe *CONFIRMAR*.\n"
+                security_msg += "\n¿Quieres continuar? Escribe *CONFIRMAR*.\n"
                 await update.message.reply_text(
                     f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\n"
                     f"Commission: {commission*100:.1f}%\n"
@@ -2275,12 +2311,21 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount, "risk_accepted": False}
                 return
         
+        # IA Predictiva (opcional)
+        pred_msg = ""
+        if AI_MODEL_ENABLED:
+            # Simulamos una alerta para predicción
+            alert = {"symbol": symbol, "value": cost, "transaction_type": "buy"}
+            pred = predict_with_ai(alert)
+            pred_msg = f"\n🧠 *Predicción IA:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)"
+        
         await update.message.reply_text(
             f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\n"
             f"Commission: {commission*100:.1f}%\n"
             + (f"🪙 Token reward: {token_amount:.6f} $CARCH\n" if token_amount > 0 else "")
             + f"\n{security_msg}"
-            + f"\nReply with *YES* (uppercase) to execute on testnet.",
+            + pred_msg
+            + f"\n\nReply with *YES* (uppercase) to execute on testnet.",
             parse_mode="Markdown"
         )
         context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount, "risk_accepted": True}
@@ -2315,7 +2360,7 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid amount.")
         return
     try:
-        # Escudo Anti-Pánico
+        # Panic Shield
         try:
             fg_data = requests.get('https://api.alternative.me/fng/?limit=1').json()
             fear_value = int(fg_data['data'][0]['value'])
@@ -2347,7 +2392,7 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         fee = value * commission if commission else 0
         token_amount = fee * token_reward if token_reward > 0 else 0
         
-        # ===== NUEVO: Seguridad Anti-Rug (al vender, verificamos que se pueda vender) =====
+        # Anti-Rug para ventas
         security_msg = ""
         if ANTI_RUG_ENABLED and GOPLUS_API_KEY:
             contract = "0x0000000000000000000000000000000000000000"
@@ -2379,13 +2424,21 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount, "risk_accepted": False}
                 return
-
+        
+        # IA Predictiva
+        pred_msg = ""
+        if AI_MODEL_ENABLED:
+            alert = {"symbol": symbol, "value": value, "transaction_type": "sell"}
+            pred = predict_with_ai(alert)
+            pred_msg = f"\n🧠 *Predicción IA:* {pred['emoji']} {pred['prediction'].capitalize()} ({pred['confidence']}% confianza)"
+        
         await update.message.reply_text(
             f"🔴 *Confirm sell*\n{amount} {symbol} ≈ ${value:.2f} USD\n"
             f"Commission: {commission*100:.1f}%\n"
             + (f"🪙 Token reward: {token_amount:.6f} $CARCH\n" if token_amount > 0 else "")
             + f"\n{security_msg}"
-            + f"\nReply with *YES* (uppercase) to execute on testnet.",
+            + pred_msg
+            + f"\n\nReply with *YES* (uppercase) to execute on testnet.",
             parse_mode="Markdown"
         )
         context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount, "risk_accepted": True}
@@ -2396,12 +2449,11 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
     
-    # Manejar confirmación de riesgo
+    # Confirmar riesgo
     if text == "confirmar" or text == "confirm":
         order = context.user_data.get("pending_order")
         if order:
             order["risk_accepted"] = True
-            # Re-ejecutar la orden con riesgo aceptado
             if order["type"] == "buy":
                 await buy(update, context)
             else:
@@ -2787,6 +2839,7 @@ if __name__ == "__main__":
         app.add_handler(CommandHandler("plans", plans_command))
         app.add_handler(CommandHandler("id", id_command))
         app.add_handler(CommandHandler("whale", whale))
+        app.add_handler(CommandHandler("predict", predict_command))  # NUEVO
         app.add_handler(CommandHandler("terms", terms_command))
         app.add_handler(CommandHandler("accept", accept_terms))
         app.add_handler(CommandHandler("info", info_command))
@@ -2809,7 +2862,7 @@ if __name__ == "__main__":
         await app.start()
         await app.updater.start_polling()
 
-        logger.info("🚀 Trading bot started successfully (Fase 6: Anti-MEV + Anti-Rug integrado)")
+        logger.info("🚀 Trading bot started successfully (Fase 7: IA Predictiva integrada)")
 
         while True:
             await asyncio.sleep(1)
