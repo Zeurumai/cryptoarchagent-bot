@@ -13,7 +13,7 @@ import hmac
 import hashlib
 import random
 from datetime import datetime, timedelta
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, render_template, jsonify, send_from_directory
 from dotenv import load_dotenv
 import mercadopago
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -275,16 +275,16 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
         warnings = []
         if is_honeypot:
             risk_score += 40
-            warnings.append("🚨 Honeypot detectado (no puedes vender)")
+            warnings.append("🚨 Honeypot detected (cannot sell)")
         if is_whitelist_only:
             risk_score += 30
-            warnings.append("🚨 Solo lista blanca (no puedes vender)")
+            warnings.append("🚨 Whitelist only (cannot sell)")
         if not liquidity_locked:
             risk_score += 20
-            warnings.append("⚠️ Liquidez no bloqueada (riesgo de rug pull)")
+            warnings.append("⚠️ Liquidity not locked (rug pull risk)")
         if not owner_renounced:
             risk_score += 10
-            warnings.append("⚠️ Dueño no renunciado (puede modificar el contrato)")
+            warnings.append("⚠️ Owner not renounced (can modify contract)")
         
         liquidity = token_data.get("liquidity", 0)
         if isinstance(liquidity, str):
@@ -294,7 +294,7 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
                 liquidity = 0
         if liquidity < 5000:
             risk_score += 10
-            warnings.append("⚠️ Liquidez baja (< $5000)")
+            warnings.append("⚠️ Low liquidity (< $5000)")
         
         return {
             "is_honeypot": is_honeypot,
@@ -307,30 +307,28 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
         }
     except Exception as e:
         logger.error(f"Error en check_token_security: {e}")
-        return {"risk_score": 0, "warnings": ["⚠️ Error verificando el token"]}
+        return {"risk_score": 0, "warnings": ["⚠️ Error verifying token"]}
 
 def simulate_anti_mev(symbol: str, amount: float) -> dict:
     if not ANTI_MEV_ENABLED:
-        return {"protected": False, "message": "Anti-MEV desactivado"}
+        return {"protected": False, "message": "Anti-MEV disabled"}
     
     if amount > 10:
         return {
             "protected": True,
-            "message": f"🛡️ Anti-MEV activado para {symbol} (monto > 10 USDT). Usando ruta privada."
+            "message": f"🛡️ Anti-MEV activated for {symbol} (amount > 10 USDT). Using private route."
         }
     else:
         return {
             "protected": True,
-            "message": "🛡️ Anti-MEV activado (modo estándar)."
+            "message": "🛡️ Anti-MEV activated (standard mode)."
         }
 
 # ==================== IA PREDICTIVA AVANZADA (FASE 7.2) ====================
 
-# Historial de predicciones (para aprender de aciertos/errores)
 prediction_history = []
 
 def get_fear_greed_index() -> dict:
-    """Obtiene el índice de miedo/avaricia actual."""
     try:
         response = requests.get('https://api.alternative.me/fng/', timeout=5)
         if response.status_code == 200:
@@ -343,78 +341,70 @@ def get_fear_greed_index() -> dict:
                 "sentiment": "bearish" if value < 30 else "bullish" if value > 70 else "neutral"
             }
     except Exception as e:
-        logger.error(f"Error obteniendo Fear & Greed: {e}")
+        logger.error(f"Error getting Fear & Greed: {e}")
     return {"value": 50, "classification": "Neutral", "sentiment": "neutral"}
 
 def get_asset_volatility(symbol: str) -> float:
-    """Calcula volatilidad basada en el cambio 24h (aproximación)."""
     prices = get_cached_prices()
     for coin_id, sym, name in COINS:
         if sym == symbol and coin_id in prices:
             change = prices[coin_id].get('usd_24h_change', 0)
-            return abs(change)  # Volatilidad = |cambio %|
-    return 5.0  # volatilidad por defecto (5%)
+            return abs(change)
+    return 5.0
 
 def get_whale_frequency(alerts: list, symbol: str, tx_type: str, time_window_hours: int = 6) -> int:
-    """Cuenta cuántas transacciones de ballenas del mismo tipo han ocurrido recientemente."""
     if not alerts:
         return 0
     count = 0
     now = time.time()
     for alert in alerts:
         if alert.get("symbol") == symbol and alert.get("transaction_type") == tx_type:
-            # Si tiene timestamp, usarlo; si no, asumir que es reciente
             count += 1
     return count
 
 def predict_with_ai_advanced(alert: dict, all_alerts: list = None) -> dict:
-    """
-    IA Predictiva Avanzada con múltiples factores.
-    Retorna dirección, confianza (0-100) y detalles.
-    """
     if not AI_MODEL_ENABLED:
         return {
-            "prediction": "⚠️ IA desactivada",
+            "prediction": "⚠️ AI disabled",
             "confidence": 0,
             "emoji": "⚪",
-            "details": "Activa IA con variable AI_MODEL_ENABLED=true",
+            "details": "Enable AI with AI_MODEL_ENABLED=true",
             "factors": {}
         }
     
-    # Extraer datos de la alerta
     symbol = alert.get("symbol", "BTC")
     value = alert.get("value", 0)
     tx_type = alert.get("transaction_type", "transfer")
     
-    # ==== FACTOR 1: Tamaño de ballena (30%) ====
+    # Factor 1: Whale size (30%)
     if value > 1000000:
         whale_score = 100
-        whale_tier = "🐋 Mega Ballena (> $1M)"
+        whale_tier = "🐋 Mega Whale (> $1M)"
     elif value > 500000:
         whale_score = 80
-        whale_tier = "🐳 Ballena Grande (> $500k)"
+        whale_tier = "🐳 Large Whale (> $500k)"
     elif value > 100000:
         whale_score = 60
-        whale_tier = "🐋 Ballena Media (> $100k)"
+        whale_tier = "🐋 Medium Whale (> $100k)"
     elif value > 50000:
         whale_score = 40
-        whale_tier = "🐟 Ballena Pequeña (> $50k)"
+        whale_tier = "🐟 Small Whale (> $50k)"
     else:
         whale_score = 20
-        whale_tier = "🦐 Pequeña (< $50k)"
+        whale_tier = "🦐 Small (< $50k)"
     
-    # ==== FACTOR 2: Tipo de transacción (20%) ====
+    # Factor 2: Transaction type (20%)
     if tx_type == "buy":
         tx_score = 80
-        tx_sentiment = "alcista"
+        tx_sentiment = "bullish"
     elif tx_type == "sell":
         tx_score = 20
-        tx_sentiment = "bajista"
-    else:  # transfer
+        tx_sentiment = "bearish"
+    else:
         tx_score = 50
         tx_sentiment = "neutral"
     
-    # ==== FACTOR 3: Frecuencia de ballenas (15%) ====
+    # Factor 3: Whale frequency (15%)
     if all_alerts:
         freq_buy = get_whale_frequency(all_alerts, symbol, "buy")
         freq_sell = get_whale_frequency(all_alerts, symbol, "sell")
@@ -431,30 +421,29 @@ def predict_with_ai_advanced(alert: dict, all_alerts: list = None) -> dict:
     else:
         freq_score = 50
     
-    # ==== FACTOR 4: Fear & Greed (15%) ====
+    # Factor 4: Fear & Greed (15%)
     fg = get_fear_greed_index()
     if fg["sentiment"] == "bearish" and tx_type == "buy":
-        fg_score = 80  # Comprar en miedo extremo = buena señal
+        fg_score = 80
     elif fg["sentiment"] == "bullish" and tx_type == "sell":
-        fg_score = 80  # Vender en avaricia extrema = buena señal
+        fg_score = 80
     elif fg["sentiment"] == "bearish" and tx_type == "sell":
-        fg_score = 30  # Vender en miedo = mala señal
+        fg_score = 30
     elif fg["sentiment"] == "bullish" and tx_type == "buy":
-        fg_score = 30  # Comprar en avaricia = mala señal
+        fg_score = 30
     else:
         fg_score = 50
     
-    # ==== FACTOR 5: Volatilidad (10%) ====
+    # Factor 5: Volatility (10%)
     vol = get_asset_volatility(symbol)
     if vol > 10:
-        vol_score = 20  # Alta volatilidad = menor confianza
+        vol_score = 20
     elif vol > 5:
         vol_score = 50
     else:
-        vol_score = 80  # Baja volatilidad = más predecible
+        vol_score = 80
     
-    # ==== FACTOR 6: Liquidez del activo (10%) ====
-    # BTC y ETH son más líquidos -> más confianza
+    # Factor 6: Liquidity (10%)
     if symbol in ["BTC", "ETH"]:
         liq_score = 90
     elif symbol in ["SOL", "BNB"]:
@@ -462,7 +451,6 @@ def predict_with_ai_advanced(alert: dict, all_alerts: list = None) -> dict:
     else:
         liq_score = 50
     
-    # ==== CÁLCULO DE PONDERACIONES ====
     weights = {
         "whale_size": 0.30,
         "tx_type": 0.20,
@@ -481,75 +469,66 @@ def predict_with_ai_advanced(alert: dict, all_alerts: list = None) -> dict:
         liq_score * weights["liquidity"]
     )
     
-    # ==== DIRECCIÓN Y CONFIANZA ====
-    # Dirección base: si la puntuación es > 50 => compra (bullish), < 50 => venta (bearish)
-    # Pero ajustamos por el tipo de transacción original
     if tx_type == "buy":
-        # Si es compra, esperamos que el precio suba
         if raw_score > 55:
             prediction = "bullish"
             confidence = raw_score
             emoji = "🟢"
-            detail = f"Señal de compra fuerte ({whale_tier})"
+            detail = f"Strong buy signal ({whale_tier})"
         elif raw_score > 45:
             prediction = "neutral"
             confidence = raw_score
             emoji = "🟡"
-            detail = f"Señal de compra débil ({whale_tier})"
+            detail = f"Weak buy signal ({whale_tier})"
         else:
             prediction = "bearish"
             confidence = 100 - raw_score
             emoji = "🔴"
-            detail = f"Señal de compra contradictoria ({whale_tier})"
+            detail = f"Contradictory buy signal ({whale_tier})"
     elif tx_type == "sell":
-        # Si es venta, esperamos que el precio baje
         if raw_score > 55:
             prediction = "bearish"
             confidence = raw_score
             emoji = "🔴"
-            detail = f"Señal de venta fuerte ({whale_tier})"
+            detail = f"Strong sell signal ({whale_tier})"
         elif raw_score > 45:
             prediction = "neutral"
             confidence = raw_score
             emoji = "🟡"
-            detail = f"Señal de venta débil ({whale_tier})"
+            detail = f"Weak sell signal ({whale_tier})"
         else:
             prediction = "bullish"
             confidence = 100 - raw_score
             emoji = "🟢"
-            detail = f"Señal de venta contradictoria ({whale_tier})"
+            detail = f"Contradictory sell signal ({whale_tier})"
     else:
-        # Transferencias: neutral por defecto
         if raw_score > 60:
             prediction = "bullish"
             confidence = raw_score
             emoji = "🟢"
-            detail = f"Transferencia con tendencia alcista ({whale_tier})"
+            detail = f"Transfer with bullish tendency ({whale_tier})"
         elif raw_score < 40:
             prediction = "bearish"
             confidence = 100 - raw_score
             emoji = "🔴"
-            detail = f"Transferencia con tendencia bajista ({whale_tier})"
+            detail = f"Transfer with bearish tendency ({whale_tier})"
         else:
             prediction = "neutral"
             confidence = raw_score
             emoji = "🟡"
-            detail = f"Transferencia neutral ({whale_tier})"
+            detail = f"Neutral transfer ({whale_tier})"
     
-    # Asegurar confianza entre 0 y 100
     confidence = max(0, min(100, confidence))
     
-    # ==== FACTORES DETALLADOS PARA TRANSPARENCIA ====
     factors = {
         "whale_size": f"{whale_score}/100 ({whale_tier})",
         "tx_type": f"{tx_score}/100 ({tx_sentiment})",
-        "frequency": f"{freq_score}/100 ({'Múltiples ballenas' if freq_score > 60 else 'Pocas ballenas'})",
+        "frequency": f"{freq_score}/100 ({'Multiple whales' if freq_score > 60 else 'Few whales'})",
         "fear_greed": f"{fg_score}/100 ({fg['classification']} {fg['value']}/100)",
-        "volatility": f"{vol_score}/100 ({vol:.1f}% volatilidad)",
+        "volatility": f"{vol_score}/100 ({vol:.1f}% volatility)",
         "liquidity": f"{liq_score}/100 ({symbol})"
     }
     
-    # Guardar en historial para aprendizaje (opcional)
     if all_alerts:
         prediction_history.append({
             "timestamp": time.time(),
@@ -559,7 +538,6 @@ def predict_with_ai_advanced(alert: dict, all_alerts: list = None) -> dict:
             "actual_tx": tx_type,
             "value": value
         })
-        # Mantener historial pequeño (últimas 100)
         if len(prediction_history) > 100:
             prediction_history.pop(0)
     
@@ -603,11 +581,11 @@ SUBSCRIBERS_FILE = "subscribers.json"
 
 # ==================== NIVELES ====================
 LEVELS = {
-    0: {"name": "Explorer", "emoji": "🧭", "commission": 0.005, "insignia": "🔰", "benefits": "Alertas básicas, ballenas, noticias, 14 días gratis", "active": False, "beta_access": False, "token_reward": False},
-    1: {"name": "Trader", "emoji": "📊", "commission": 0.004, "insignia": "⚡", "benefits": "Todo Explorer + Copy Trading", "active": True, "beta_access": False, "token_reward": False},
-    2: {"name": "Pro", "emoji": "⭐", "commission": 0.003, "insignia": "🌟", "benefits": "Todo Trader + Sniper X + Auto Trading", "active": True, "beta_access": False, "token_reward": False},
-    3: {"name": "Elite", "emoji": "👑", "commission": 0.003, "insignia": "🏆", "benefits": "Todo Pro + Acceso Beta + Insignia exclusiva", "active": True, "beta_access": True, "token_reward": 0.0005},
-    4: {"name": "Legendary", "emoji": "🏆", "commission": 0.003, "insignia": "⚜️", "benefits": "Todo Elite + Voto en features + Soporte VIP", "active": True, "beta_access": True, "token_reward": 0.0005}
+    0: {"name": "Explorer", "emoji": "🧭", "commission": 0.005, "insignia": "🔰", "benefits": "Basic alerts, whales, news, 14-day free trial", "active": False, "beta_access": False, "token_reward": False},
+    1: {"name": "Trader", "emoji": "📊", "commission": 0.004, "insignia": "⚡", "benefits": "Explorer + Copy Trading", "active": True, "beta_access": False, "token_reward": False},
+    2: {"name": "Pro", "emoji": "⭐", "commission": 0.003, "insignia": "🌟", "benefits": "Trader + Sniper X + Auto Trading", "active": True, "beta_access": False, "token_reward": False},
+    3: {"name": "Elite", "emoji": "👑", "commission": 0.003, "insignia": "🏆", "benefits": "Pro + Beta Access + Exclusive Badge", "active": True, "beta_access": True, "token_reward": 0.0005},
+    4: {"name": "Legendary", "emoji": "🏆", "commission": 0.003, "insignia": "⚜️", "benefits": "Elite + Vote on Features + VIP Support", "active": True, "beta_access": True, "token_reward": 0.0005}
 }
 
 def load_subscribers():
@@ -960,7 +938,7 @@ def rate_limited():
         async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id = update.effective_chat.id
             if is_rate_limited(chat_id):
-                await update.message.reply_text("⏳ Demasiadas peticiones. Espera un momento.")
+                await update.message.reply_text("⏳ Too many requests. Please wait a moment.")
                 return
             return await func(update, context)
         return wrapper
@@ -1036,7 +1014,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     if is_rate_limited(chat_id):
-        await query.edit_message_text("⏳ Demasiadas peticiones. Espera.")
+        await query.edit_message_text("⏳ Too many requests. Please wait.")
         return
 
     if data == "status":
@@ -1080,7 +1058,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(message, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Error en balance: {e}")
-            await query.edit_message_text("❌ Error interno. Intenta más tarde.", parse_mode="Markdown")
+            await query.edit_message_text("❌ Internal error. Try again later.", parse_mode="Markdown")
     elif data == "premium":
         level = get_user_level(chat_id)
         if level >= 1:
@@ -1461,30 +1439,27 @@ Use /plan to check your level.
 """
     await update.message.reply_text(text, parse_mode="Markdown")
 
-# ==================== COMANDO DE PREDICCIÓN (NUEVO - FASE 7.2) ====================
+# ==================== COMANDO DE PREDICCIÓN ====================
 @rate_limited()
 async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /predict - Muestra una predicción avanzada con factores detallados."""
     if not AI_MODEL_ENABLED:
         await update.message.reply_text(
-            "⚠️ *IA Predictiva desactivada*\n\n"
-            "Activa la variable `AI_MODEL_ENABLED=true` en Railway.",
+            "⚠️ *AI Predictor disabled*\n\n"
+            "Enable with `AI_MODEL_ENABLED=true` in Railway.",
             parse_mode="Markdown"
         )
         return
     
-    # Obtener la última alerta disponible
     alert = None
     if context.user_data.get("last_whale_alerts"):
         alert = context.user_data["last_whale_alerts"][0]
     
     if not alert:
-        # Crear una alerta de ejemplo
         alert = {
             "symbol": "BTC",
             "value": 150000,
             "transaction_type": "buy",
-            "description": "Whale compró BTC"
+            "description": "Whale bought BTC"
         }
         all_alerts = [alert]
     else:
@@ -1493,32 +1468,31 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prediction = predict_with_ai_advanced(alert, all_alerts)
     
     message = (
-        f"🧠 *Predicción IA Avanzada*\n\n"
-        f"{prediction['emoji']} *Dirección:* {prediction['prediction'].capitalize()}\n"
-        f"📊 *Confianza:* {prediction['confidence']:.1f}%\n"
-        f"📝 *Detalles:* {prediction['details']}\n\n"
-        f"📊 *Factores analizados:*\n"
+        f"🧠 *Advanced AI Prediction*\n\n"
+        f"{prediction['emoji']} *Direction:* {prediction['prediction'].capitalize()}\n"
+        f"📊 *Confidence:* {prediction['confidence']:.1f}%\n"
+        f"📝 *Details:* {prediction['details']}\n\n"
+        f"📊 *Factors analyzed:*\n"
     )
     for factor, value in prediction.get("factors", {}).items():
         message += f"   • {factor.replace('_', ' ').title()}: {value}\n"
     
-    # Agregar Fear & Greed actual
     fg = get_fear_greed_index()
-    message += f"\n📉 *Fear & Greed actual:* {fg['value']}/100 ({fg['classification']})"
+    message += f"\n📉 *Fear & Greed:* {fg['value']}/100 ({fg['classification']})"
     
     if prediction['confidence'] > 70:
-        message += "\n\n✅ *Señal fuerte* - Alta probabilidad de acierto."
+        message += "\n\n✅ *Strong signal* - High probability of success."
     elif prediction['confidence'] > 50:
-        message += "\n\n⚠️ *Señal moderada* - Considerar otros factores."
+        message += "\n\n⚠️ *Moderate signal* - Consider other factors."
     else:
-        message += "\n\n🔴 *Señal débil* - Baja confiabilidad."
+        message += "\n\n🔴 *Weak signal* - Low reliability."
     
-    message += "\n\n_Basado en actividad reciente de ballenas y análisis multi-factor._\n"
-    message += "⚠️ _No es consejo financiero._"
+    message += "\n\n_Based on recent whale activity and multi-factor analysis._\n"
+    message += "⚠️ _Not financial advice._"
     
     await update.message.reply_text(message, parse_mode="Markdown")
 
-# ==================== WHALE FUNCTIONS (MODIFICADO CON IA AVANZADA) ====================
+# ==================== WHALE FUNCTIONS ====================
 @rate_limited()
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
@@ -1535,7 +1509,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
     context.user_data["last_whale_alerts"] = all_alerts
 
-    # Función para mostrar alerta con IA avanzada
     def format_alert(alert, idx):
         emoji, desc, sentiment, value = analizar_alerta(alert)
         text = f"{emoji} `{desc}`\n"
@@ -1545,11 +1518,10 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ia_analysis:
             text += f"   🧠 *AI:* {ia_analysis}\n"
         
-        # Nueva predicción avanzada
         if AI_MODEL_ENABLED:
             pred = predict_with_ai_advanced(alert, all_alerts)
             confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
-            text += f"   📡 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)\n"
+            text += f"   📡 *Prediction:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confidence)\n"
         
         radar = predecir_movimiento_ballena(alert)
         text += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
@@ -1558,7 +1530,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"   🆔 `whale_{idx}`\n"
         return text
 
-    # Bitcoin
     if btc_alerts:
         output += "₿ *Bitcoin (BTC)*\n"
         for idx, alert in enumerate(btc_alerts):
@@ -1566,7 +1537,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
 
-    # Ethereum
     if eth_alerts:
         output += "⟠ *Ethereum (ETH)*\n"
         for idx, alert in enumerate(eth_alerts, start=len(btc_alerts)):
@@ -1574,7 +1544,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
 
-    # Solana
     if sol_alerts:
         output += "◎ *Solana (SOL)*\n"
         for idx, alert in enumerate(sol_alerts, start=len(btc_alerts) + len(eth_alerts)):
@@ -1582,7 +1551,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "◎ *Solana (SOL)*\nNo significant movements recently.\n\n"
 
-    # Polygon
     if matic_alerts:
         output += "🟣 *Polygon (MATIC)*\n"
         for idx, alert in enumerate(matic_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts)):
@@ -1590,7 +1558,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "🟣 *Polygon (MATIC)*\nNo significant movements recently.\n\n"
 
-    # Arbitrum
     if arb_alerts:
         output += "🔵 *Arbitrum (ARB)*\n"
         for idx, alert in enumerate(arb_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts) + len(matic_alerts)):
@@ -1598,7 +1565,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output += "🔵 *Arbitrum (ARB)*\nNo significant movements recently.\n\n"
 
-    # Mostrar resumen de Fear & Greed
     fg = get_fear_greed_index()
     output += f"\n📉 *Fear & Greed:* {fg['value']}/100 ({fg['classification']})"
 
@@ -1644,7 +1610,7 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if AI_MODEL_ENABLED:
             pred = predict_with_ai_advanced(alert, all_alerts)
             confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
-            text += f"   📡 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)\n"
+            text += f"   📡 *Prediction:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confidence)\n"
         radar = predecir_movimiento_ballena(alert)
         text += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
         context.user_data[f"whale_alert_{idx}"] = alert
@@ -1791,16 +1757,15 @@ async def execute_sniper(chat_id, alerts, context):
             contract = "0x0000000000000000000000000000000000000000"
             rug_check = check_token_security(contract, "ethereum")
             if rug_check["risk_score"] > 30:
-                security_msg += f"⚠️ Riesgo detectado (score: {rug_check['risk_score']}/100)\n"
+                security_msg += f"⚠️ Risk detected (score: {rug_check['risk_score']}/100)\n"
                 for warn in rug_check["warnings"]:
                     security_msg += f"   {warn}\n"
         
-        # IA Predictiva Avanzada
         pred_msg = ""
         if AI_MODEL_ENABLED:
             pred = predict_with_ai_advanced(alert, alerts)
             confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
-            pred_msg = f"\n🧠 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)"
+            pred_msg = f"\n🧠 *Prediction:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confidence)"
 
         await context.bot.send_message(
             chat_id=chat_id,
@@ -1829,7 +1794,7 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
     if not supabase:
-        await update.message.reply_text("❌ Base de datos no disponible.")
+        await update.message.reply_text("❌ Database not available.")
         return
     if not args:
         try:
@@ -1856,7 +1821,7 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         except Exception as e:
             logger.error(f"Error loading copy settings: {e}")
-            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+            await update.message.reply_text("❌ Internal error. Try again later.")
         return
     try:
         if len(args) < 4:
@@ -1893,7 +1858,7 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid number format. Use decimal points (ej: 20.5)")
     except Exception as e:
         logger.error(f"Error saving copy settings: {e}")
-        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+        await update.message.reply_text("❌ Internal error. Try again later.")
 
 async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1945,7 +1910,7 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             contract = "0x0000000000000000000000000000000000000000"
             rug_check = check_token_security(contract, "ethereum")
             if rug_check["risk_score"] > 30:
-                security_msg += f"⚠️ Riesgo detectado (score: {rug_check['risk_score']}/100)\n"
+                security_msg += f"⚠️ Risk detected (score: {rug_check['risk_score']}/100)\n"
                 for warn in rug_check["warnings"]:
                     security_msg += f"   {warn}\n"
         
@@ -1953,7 +1918,7 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if AI_MODEL_ENABLED:
             pred = predict_with_ai_advanced(alert, alerts)
             confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
-            pred_msg = f"\n🧠 *Predicción:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)"
+            pred_msg = f"\n🧠 *Prediction:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confidence)"
         
         await query.edit_message_text(
             f"🐋 *Copy Trade Execution*\n\n"
@@ -1971,7 +1936,7 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     except Exception as e:
         logger.error(f"Error in copy_whale_callback: {e}")
-        await query.edit_message_text("❌ Error interno. Intenta más tarde.")
+        await query.edit_message_text("❌ Internal error. Try again later.")
 
 # ==================== RULES ====================
 @rate_limited()
@@ -1987,11 +1952,11 @@ async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         text = "🤖 *Your auto trading rules:*\n\n"
         for r in rules.data:
-            status = "✅ Activa" if r["active"] else "❌ Pausada"
+            status = "✅ Active" if r["active"] else "❌ Paused"
             text += f"🔹 *ID {r['id']}*: {r['condition']}\n"
-            text += f"   Acción: {r['action']} | Monto: ${r['amount']} USDT\n"
+            text += f"   Action: {r['action']} | Amount: ${r['amount']} USDT\n"
             text += f"   Stop-loss: {r['stop_loss']}% | Take-profit: {r['take_profit']}%\n"
-            text += f"   Estado: {status}\n"
+            text += f"   Status: {status}\n"
             text += f"   📌 `/rule toggle {r['id']}` · `/rule delete {r['id']}`\n\n"
         text += "\n*Commands:*\n"
         text += "/rule add [condition] [action] [amount] [stop_loss] [take_profit]\n"
@@ -2002,14 +1967,14 @@ async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in rules_menu: {e}")
-        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+        await update.message.reply_text("❌ Internal error. Try again later.")
 
 @rate_limited()
 async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
     if not supabase:
-        await update.message.reply_text("❌ Base de datos no disponible.")
+        await update.message.reply_text("❌ Database not available.")
         return
     if len(args) == 0:
         await update.message.reply_text("❌ Usage: /rule [add|list|toggle|delete] ...")
@@ -2066,7 +2031,7 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
         except Exception as e:
             logger.error(f"Error adding rule: {e}")
-            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+            await update.message.reply_text("❌ Internal error. Try again later.")
     elif subcommand == "list":
         try:
             rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
@@ -2082,7 +2047,7 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Error listing rules: {e}")
-            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+            await update.message.reply_text("❌ Internal error. Try again later.")
     elif subcommand == "toggle":
         if len(args) < 2:
             await update.message.reply_text("❌ Usage: `/rule toggle [id]`")
@@ -2107,7 +2072,7 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Invalid ID. Use `/rule list` to see your rule IDs.")
         except Exception as e:
             logger.error(f"Error toggling rule: {e}")
-            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+            await update.message.reply_text("❌ Internal error. Try again later.")
     elif subcommand == "delete":
         if len(args) < 2:
             await update.message.reply_text("❌ Usage: `/rule delete [id]`")
@@ -2126,7 +2091,7 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Invalid ID. Use `/rule list` to see your rule IDs.")
         except Exception as e:
             logger.error(f"Error deleting rule: {e}")
-            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+            await update.message.reply_text("❌ Internal error. Try again later.")
     else:
         await update.message.reply_text("❌ Unknown subcommand. Use: add, list, toggle, delete")
 
@@ -2159,14 +2124,14 @@ async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in snipe_settings_menu: {e}")
-        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+        await update.message.reply_text("❌ Internal error. Try again later.")
 
 @rate_limited()
 async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
     if not supabase:
-        await update.message.reply_text("❌ Base de datos no disponible.")
+        await update.message.reply_text("❌ Database not available.")
         return
     if len(args) == 0:
         await snipe_settings_menu(update, context)
@@ -2208,21 +2173,21 @@ async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
         except Exception as e:
             logger.error(f"Error saving snipe settings: {e}")
-            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+            await update.message.reply_text("❌ Internal error. Try again later.")
     elif subcommand == "on":
         try:
             supabase.table("snipe_settings").update({"active": True}).eq("chat_id", chat_id).execute()
             await update.message.reply_text("✅ Snipe activated.")
         except Exception as e:
             logger.error(f"Error activating snipe: {e}")
-            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+            await update.message.reply_text("❌ Internal error. Try again later.")
     elif subcommand == "off":
         try:
             supabase.table("snipe_settings").update({"active": False}).eq("chat_id", chat_id).execute()
             await update.message.reply_text("✅ Snipe paused.")
         except Exception as e:
             logger.error(f"Error pausing snipe: {e}")
-            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+            await update.message.reply_text("❌ Internal error. Try again later.")
     else:
         await update.message.reply_text("❌ Unknown subcommand. Use: set, on, off")
 
@@ -2233,7 +2198,7 @@ async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
 
     if not supabase:
-        await update.message.reply_text("❌ Base de datos no disponible.")
+        await update.message.reply_text("❌ Database not available.")
         return
 
     if not args:
@@ -2269,7 +2234,7 @@ async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         except Exception as e:
             logger.error(f"Error loading sniper settings: {e}")
-            await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+            await update.message.reply_text("❌ Internal error. Try again later.")
         return
 
     try:
@@ -2316,7 +2281,7 @@ async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
     except Exception as e:
         logger.error(f"Error saving sniper settings: {e}")
-        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+        await update.message.reply_text("❌ Internal error. Try again later.")
 
 # ==================== COMANDOS ====================
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2333,7 +2298,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in balance: {e}")
-        await update.message.reply_text("❌ Error interno. Intenta más tarde.", parse_mode="Markdown")
+        await update.message.reply_text("❌ Internal error. Try again later.", parse_mode="Markdown")
 
 @rate_limited()
 async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2424,7 +2389,7 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in /info: {e}")
-        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+        await update.message.reply_text("❌ Internal error. Try again later.")
 
 @rate_limited()
 async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2463,7 +2428,7 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_user_email(chat_id, email)
     await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
 
-# ==================== TRADING TESTNET (CON SEGURIDAD Y IA AVANZADA) ====================
+# ==================== TRADING TESTNET (CON SEGURIDAD Y IA) ====================
 @rate_limited()
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -2503,7 +2468,7 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         fee = cost * commission if commission else 0
         token_amount = fee * token_reward if token_reward > 0 else 0
         
-        # Seguridad Anti-Rug
+        # Anti-Rug
         security_msg = ""
         if ANTI_RUG_ENABLED and GOPLUS_API_KEY:
             contract = "0x0000000000000000000000000000000000000000"
@@ -2511,11 +2476,11 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 contract = symbol
             rug_check = check_token_security(contract, "ethereum")
             if rug_check["risk_score"] > 30:
-                security_msg = f"\n⚠️ *Riesgo de seguridad detectado:*\n"
-                security_msg += f"   Puntuación de riesgo: {rug_check['risk_score']}/100\n"
+                security_msg = f"\n⚠️ *Security risk detected:*\n"
+                security_msg += f"   Risk score: {rug_check['risk_score']}/100\n"
                 for warn in rug_check["warnings"]:
                     security_msg += f"   {warn}\n"
-                security_msg += "\n¿Quieres continuar? Escribe *CONFIRMAR*.\n"
+                security_msg += "\nDo you want to continue? Type *CONFIRMAR*.\n"
                 await update.message.reply_text(
                     f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\n"
                     f"Commission: {commission*100:.1f}%\n"
@@ -2526,13 +2491,13 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount, "risk_accepted": False}
                 return
         
-        # IA Predictiva Avanzada
+        # IA Predictiva
         pred_msg = ""
         if AI_MODEL_ENABLED:
             alert = {"symbol": symbol, "value": cost, "transaction_type": "buy"}
             pred = predict_with_ai_advanced(alert, [])
             confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
-            pred_msg = f"\n🧠 *Predicción IA:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)"
+            pred_msg = f"\n🧠 *AI Prediction:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confidence)"
         
         await update.message.reply_text(
             f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\n"
@@ -2546,7 +2511,7 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount, "risk_accepted": True}
     except Exception as e:
         logger.error(f"Error in buy: {e}")
-        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+        await update.message.reply_text("❌ Internal error. Try again later.")
 
 @rate_limited()
 async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2615,21 +2580,21 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 contract = symbol
             rug_check = check_token_security(contract, "ethereum")
             if not rug_check.get("can_sell", True):
-                security_msg = f"\n🚨 *No se puede vender este token (honeypot detectado)*\n"
-                security_msg += f"   Riesgo: {rug_check['risk_score']}/100\n"
+                security_msg = f"\n🚨 *Cannot sell this token (honeypot detected)*\n"
+                security_msg += f"   Risk: {rug_check['risk_score']}/100\n"
                 for warn in rug_check["warnings"]:
                     security_msg += f"   {warn}\n"
                 await update.message.reply_text(
-                    f"❌ *Venta bloqueada por seguridad*\n{security_msg}",
+                    f"❌ *Sale blocked for safety*\n{security_msg}",
                     parse_mode="Markdown"
                 )
                 return
             elif rug_check["risk_score"] > 30:
-                security_msg = f"\n⚠️ *Riesgo detectado al vender:*\n"
-                security_msg += f"   Puntuación: {rug_check['risk_score']}/100\n"
+                security_msg = f"\n⚠️ *Risk detected when selling:*\n"
+                security_msg += f"   Score: {rug_check['risk_score']}/100\n"
                 for warn in rug_check["warnings"]:
                     security_msg += f"   {warn}\n"
-                security_msg += "\n¿Quieres continuar? Escribe *CONFIRMAR*.\n"
+                security_msg += "\nDo you want to continue? Type *CONFIRMAR*.\n"
                 await update.message.reply_text(
                     f"🔴 *Confirm sell*\n{amount} {symbol} ≈ ${value:.2f} USD\n"
                     f"Commission: {commission*100:.1f}%\n"
@@ -2640,13 +2605,13 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount, "risk_accepted": False}
                 return
         
-        # IA Predictiva Avanzada
+        # IA Predictiva
         pred_msg = ""
         if AI_MODEL_ENABLED:
             alert = {"symbol": symbol, "value": value, "transaction_type": "sell"}
             pred = predict_with_ai_advanced(alert, [])
             confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
-            pred_msg = f"\n🧠 *Predicción IA:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confianza)"
+            pred_msg = f"\n🧠 *AI Prediction:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confidence)"
         
         await update.message.reply_text(
             f"🔴 *Confirm sell*\n{amount} {symbol} ≈ ${value:.2f} USD\n"
@@ -2660,12 +2625,11 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount, "risk_accepted": True}
     except Exception as e:
         logger.error(f"Error in sell: {e}")
-        await update.message.reply_text("❌ Error interno. Intenta más tarde.")
+        await update.message.reply_text("❌ Internal error. Try again later.")
 
 async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
     
-    # Confirmar riesgo
     if text == "confirmar" or text == "confirm":
         order = context.user_data.get("pending_order")
         if order:
@@ -2705,7 +2669,7 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not order:
         return
     if not order.get("risk_accepted", True):
-        await update.message.reply_text("❌ Debes aceptar el riesgo escribiendo *CONFIRMAR*.")
+        await update.message.reply_text("❌ You must accept the risk by typing *CONFIRMAR*.")
         return
     
     chat_id = update.effective_chat.id
@@ -2803,7 +2767,7 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in activate: {e}")
-        await update.message.reply_text("❌ Error interno. Intenta más tarde.", parse_mode="Markdown")
+        await update.message.reply_text("❌ Internal error. Try again later.", parse_mode="Markdown")
 
 @rate_limited()
 async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2846,22 +2810,22 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     if chat_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ No autorizado.")
+        await update.message.reply_text("❌ Not authorized.")
         return
     args = context.args
     if len(args) < 3:
-        await update.message.reply_text("❌ Uso: /force_premium ID NIVEL CODIGO_SECRETO\nEjemplo: /force_premium 123456789 3 MiClaveSecreta")
+        await update.message.reply_text("❌ Usage: /force_premium ID LEVEL SECRET_CODE\nExample: /force_premium 123456789 3 MySecret")
         return
     try:
         target_id = int(args[0])
         level = int(args[1])
         provided_secret = args[2]
         if provided_secret != ADMIN_SECRET:
-            await update.message.reply_text("❌ Código secreto incorrecto. Acción denegada.")
-            logger.warning(f"Intento fallido de /force_premium desde {chat_id}")
+            await update.message.reply_text("❌ Incorrect secret code. Action denied.")
+            logger.warning(f"Failed /force_premium attempt from {chat_id}")
             return
         if level < 0 or level > 4:
-            await update.message.reply_text("❌ Nivel debe ser 0-4.")
+            await update.message.reply_text("❌ Level must be 0-4.")
             return
         subscribers = load_subscribers()
         subscribers[str(target_id)] = {
@@ -2874,100 +2838,83 @@ async def force_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "end": (datetime.now() + timedelta(days=365)).isoformat()
         }
         save_subscribers(subscribers)
-        await update.message.reply_text(f"✅ Usuario {target_id} actualizado a nivel {level} ({LEVELS[level]['name']})")
-        logger.info(f"ADMIN: {chat_id} actualizó a {target_id} a nivel {level}")
+        await update.message.reply_text(f"✅ User {target_id} updated to level {level} ({LEVELS[level]['name']})")
+        logger.info(f"ADMIN: {chat_id} updated {target_id} to level {level}")
     except ValueError:
-        await update.message.reply_text("❌ ID o nivel inválido.")
+        await update.message.reply_text("❌ Invalid ID or level.")
     except Exception as e:
-        logger.error(f"Error en force_premium: {e}")
-        await update.message.reply_text("❌ Error interno.")
+        logger.error(f"Error in force_premium: {e}")
+        await update.message.reply_text("❌ Internal error.")
 
-# ==================== WEBHOOK + WEB TERMINAL ====================
+# ==================== WEB TERMINAL (FASE 8) - NUEVAS RUTAS Y LÓGICA ====================
+# Historial de operaciones (simulación)
+trade_history = []
+def add_trade_to_history(symbol, action, amount, price, pnl=None):
+    trade_history.append({
+        "timestamp": datetime.now().isoformat(),
+        "symbol": symbol,
+        "action": action,
+        "amount": amount,
+        "price": price,
+        "pnl": pnl if pnl is not None else 0.0
+    })
+    if len(trade_history) > 100:
+        trade_history.pop(0)
+
 if MP_WEBHOOK_URL:
-    webhook_app = Flask(__name__, template_folder='templates')
+    # (ya tenemos webhook_app definido arriba)
+    pass
 
-    def require_api_key(f):
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            provided_key = request.headers.get('X-API-Key')
-            if not provided_key or provided_key != DASHBOARD_API_KEY:
-                return jsonify({"error": "No autorizado"}), 401
-            return f(*args, **kwargs)
-        return decorated
-
-    @webhook_app.route('/webhook', methods=['POST'])
-    def webhook():
-        x_signature = request.headers.get('x-signature')
-        x_request_id = request.headers.get('x-request-id')
-        
-        if not x_signature or not x_request_id:
-            logger.warning("Webhook sin firma")
-            return "Firma faltante", 401
-        
-        raw_data = request.get_data()
-        secret = MP_WEBHOOK_SECRET.encode('utf-8')
-        computed = hmac.new(secret, raw_data, hashlib.sha256).hexdigest()
-        
-        if not hmac.compare_digest(computed, x_signature):
-            logger.warning(f"Firma inválida en webhook")
-            return "Firma inválida", 401
-        
-        try:
-            data = request.json
-            logger.info(f"📩 Webhook autenticado: {data}")
-            if data.get("type") == "payment":
-                payment_id = data["data"]["id"]
-                sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-                payment_response = sdk.payment().get(payment_id)
-                payment_data = payment_response["response"]
-                status = payment_data.get("status")
-                ext = payment_data.get("external_reference")
-                if status == "approved" and ext and ":" in ext:
-                    chat_id_str, plan_key = ext.split(":")
-                    activate_premium(int(chat_id_str), plan_key)
-            return "OK", 200
-        except Exception as e:
-            logger.error(f"Webhook error: {e}")
-            return "Error interno", 500
-
-    @webhook_app.route('/ping')
-    def ping():
-        return "OK", 200
-
+# Ampliamos rutas del dashboard
+if MP_WEBHOOK_URL:
     @webhook_app.route('/dashboard')
     def dashboard():
-        chat_id = "8355456581"
-        try:
-            return render_template('dashboard.html', chat_id=chat_id)
-        except Exception as e:
-            logger.error(f"Error loading dashboard: {e}")
-            return f"Error loading dashboard: {e}", 500
+        return render_template('dashboard.html')
 
-    @webhook_app.route('/api/stats/<chat_id>')
+    @webhook_app.route('/api/market_data')
     @require_api_key
-    def get_stats(chat_id):
-        if not supabase:
-            return jsonify({"error": "Database not connected"}), 500
-        try:
-            stats = supabase.table("user_stats").select("*").eq("chat_id", chat_id).execute()
-            if not stats.data:
-                default_stats = {
-                    "chat_id": chat_id,
-                    "total_trades": 0,
-                    "win_rate": 0.0,
-                    "pnl": 0.0,
-                    "legendary_mode": False
+    def market_data():
+        """Devuelve datos de mercado en tiempo real (precios, cambios, Fear & Greed)."""
+        prices = get_all_prices()
+        if not prices:
+            return jsonify({"error": "No market data"}), 500
+        fg = get_fear_greed_index()
+        
+        # Preparar datos para gráficos
+        market = {}
+        for coin_id, symbol, name in COINS:
+            if coin_id in prices:
+                data = prices[coin_id]
+                market[symbol] = {
+                    "price": data.get("usd", 0),
+                    "change_24h": data.get("usd_24h_change", 0),
+                    "volume_24h": data.get("usd_24h_vol", 0),  # no siempre disponible
                 }
-                supabase.table("user_stats").insert(default_stats).execute()
-                return jsonify(default_stats)
-            return jsonify(stats.data[0])
-        except Exception as e:
-            logger.error(f"Error getting stats: {e}")
-            return jsonify({"error": "Error interno"}), 500
+        
+        # Histórico para gráficos (simulado)
+        history = []
+        for i in range(30):
+            history.append({
+                "time": (datetime.now() - timedelta(minutes=i*5)).isoformat(),
+                "BTC": 60000 + (i * 100) + (i * 0.5)  # simulación simple
+            })
+        
+        return jsonify({
+            "market": market,
+            "fear_greed": fg,
+            "history": history,
+            "timestamp": time.time()
+        })
+
+    @webhook_app.route('/api/trade_history')
+    @require_api_key
+    def trade_history_api():
+        """Devuelve historial de operaciones."""
+        return jsonify(trade_history)
 
     @webhook_app.route('/api/settings/<chat_id>')
     @require_api_key
-    def get_settings(chat_id):
+    def get_settings_api(chat_id):
         if not supabase:
             return jsonify({"error": "Database not connected"}), 500
         try:
@@ -2975,17 +2922,20 @@ if MP_WEBHOOK_URL:
             sniper_data = sniper.data[0] if sniper.data else {}
             copy = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
             copy_data = copy.data[0] if copy.data else {}
+            rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
+            rules_data = rules.data if rules.data else []
             return jsonify({
                 "sniper": sniper_data,
-                "copy": copy_data
+                "copy": copy_data,
+                "rules": rules_data
             })
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
-            return jsonify({"error": "Error interno"}), 500
+            return jsonify({"error": "Internal error"}), 500
 
     @webhook_app.route('/api/update_sniper', methods=['POST'])
     @require_api_key
-    def update_sniper():
+    def update_sniper_api():
         if not supabase:
             return jsonify({"error": "Database not connected"}), 500
         try:
@@ -2999,11 +2949,11 @@ if MP_WEBHOOK_URL:
             return jsonify({"success": True})
         except Exception as e:
             logger.error(f"Error updating sniper: {e}")
-            return jsonify({"error": "Error interno"}), 500
+            return jsonify({"error": "Internal error"}), 500
 
     @webhook_app.route('/api/update_copy', methods=['POST'])
     @require_api_key
-    def update_copy():
+    def update_copy_api():
         if not supabase:
             return jsonify({"error": "Database not connected"}), 500
         try:
@@ -3017,17 +2967,46 @@ if MP_WEBHOOK_URL:
             return jsonify({"success": True})
         except Exception as e:
             logger.error(f"Error updating copy: {e}")
-            return jsonify({"error": "Error interno"}), 500
+            return jsonify({"error": "Internal error"}), 500
 
-    def run_webhook():
-        port = int(os.getenv("PORT", 5000))
-        webhook_app.run(host='0.0.0.0', port=port, debug=False)
+    @webhook_app.route('/api/toggle_rule', methods=['POST'])
+    @require_api_key
+    def toggle_rule_api():
+        if not supabase:
+            return jsonify({"error": "Database not connected"}), 500
+        try:
+            data = request.json
+            rule_id = data.get("rule_id")
+            active = data.get("active")
+            if not rule_id:
+                return jsonify({"error": "Missing rule_id"}), 400
+            supabase.table("rules").update({"active": active}).eq("id", rule_id).execute()
+            return jsonify({"success": True})
+        except Exception as e:
+            logger.error(f"Error toggling rule: {e}")
+            return jsonify({"error": "Internal error"}), 500
+
+    @webhook_app.route('/api/delete_rule', methods=['POST'])
+    @require_api_key
+    def delete_rule_api():
+        if not supabase:
+            return jsonify({"error": "Database not connected"}), 500
+        try:
+            data = request.json
+            rule_id = data.get("rule_id")
+            if not rule_id:
+                return jsonify({"error": "Missing rule_id"}), 400
+            supabase.table("rules").delete().eq("id", rule_id).execute()
+            return jsonify({"success": True})
+        except Exception as e:
+            logger.error(f"Error deleting rule: {e}")
+            return jsonify({"error": "Internal error"}), 500
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
     subscribers = load_subscribers()
     if not supabase:
-        logger.critical("❌ Supabase no conectado. El bot NO se iniciará por seguridad.")
+        logger.critical("❌ Supabase not connected. Bot will not start for security.")
         exit(1)
 
     if MP_WEBHOOK_URL:
@@ -3043,9 +3022,9 @@ if __name__ == "__main__":
     async def main():
         if WS_ENABLED:
             asyncio.create_task(update_prices_from_websocket())
-            logger.info("🔄 WebSocket price listener iniciado en background.")
+            logger.info("🔄 WebSocket price listener started in background.")
         else:
-            logger.info("ℹ️ WebSocket deshabilitado (WS_ENABLED=false). Usando REST.")
+            logger.info("ℹ️ WebSocket disabled (WS_ENABLED=false). Using REST.")
 
         app = Application.builder().token(TELEGRAM_TOKEN).build()
         app.add_handler(CommandHandler("start", start))
@@ -3055,7 +3034,7 @@ if __name__ == "__main__":
         app.add_handler(CommandHandler("plans", plans_command))
         app.add_handler(CommandHandler("id", id_command))
         app.add_handler(CommandHandler("whale", whale))
-        app.add_handler(CommandHandler("predict", predict_command))  # NUEVO FASE 7.2
+        app.add_handler(CommandHandler("predict", predict_command))
         app.add_handler(CommandHandler("terms", terms_command))
         app.add_handler(CommandHandler("accept", accept_terms))
         app.add_handler(CommandHandler("info", info_command))
@@ -3078,7 +3057,7 @@ if __name__ == "__main__":
         await app.start()
         await app.updater.start_polling()
 
-        logger.info("🚀 Trading bot started successfully (Fase 7.2: IA Predictiva Avanzada)")
+        logger.info("🚀 Trading bot started successfully (Fase 8: Web Terminal + AI Advanced)")
 
         while True:
             await asyncio.sleep(1)
