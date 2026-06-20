@@ -9,12 +9,11 @@ logger = logging.getLogger(__name__)
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
-# Inicialización segura
+# ==================== INICIALIZACIÓN SEGURA DE SUPABASE ====================
 supabase = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        # Prueba simple de conexión (opcional)
         logger.info("✅ Supabase client initialized for new_tokens")
     except Exception as e:
         logger.warning(f"⚠️ Supabase init failed: {e}. Using local storage.")
@@ -50,7 +49,8 @@ def get_recent_tokens(limit=10):
         try:
             resp = supabase.table("new_tokens").select("*").order("created_at", desc=True).limit(limit).execute()
             return resp.data if resp.data else []
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error fetching tokens from Supabase: {e}")
             return _load_local_tokens()[:limit]
     return _load_local_tokens()[:limit]
 
