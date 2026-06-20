@@ -594,16 +594,13 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         logger.info("✅ Connected to Supabase")
     except Exception as e:
-        logger.error(f"❌ Error connecting to Supabase: {e}")
+        logger.warning(f"⚠️ Supabase connection failed: {e}. Using local files.")
         supabase = None
 else:
     logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not set. Using local files.")
-
-SUBSCRIBERS_FILE = "subscribers.json"
-
 # ==================== NIVELES ====================
 LEVELS = {
     0: {"name": "Explorer", "emoji": "🧭", "commission": 0.005, "insignia": "🔰", "benefits": "Basic alerts, whales, news, 14-day free trial", "active": False, "beta_access": False, "token_reward": False},
@@ -2858,22 +2855,20 @@ def health():
 def main():
     logger.info("🚀 Starting CryptoArch Agent...")
     
-    # Scheduler en hilo separado (no asíncrono)
+    # Scheduler en hilo separado
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     logger.info("✅ Scheduler started")
     
-    # Función asíncrona que agrupa WebSocket + Bot
+    # Servicios asíncronos en un único loop
     async def start_services():
-        # Iniciar WebSocket en segundo plano si está habilitado
         if WS_ENABLED:
             asyncio.create_task(update_prices_from_websocket())
             logger.info("✅ WebSocket started")
         
-        # Configurar el bot de Telegram
         application = Application.builder().token(TELEGRAM_TOKEN).build()
         
-        # Comandos
+        # Comandos (todos los que ya tenías)
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("menu", menu_command))
         application.add_handler(CommandHandler("buy", buy))
@@ -2902,21 +2897,18 @@ def main():
         application.add_handler(CallbackQueryHandler(button_handler))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
         
-        # Iniciar Flask en hilo separado (no asíncrono)
+        # Flask en hilo
         port = int(os.getenv("PORT", 8080))
         threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False), daemon=True).start()
         logger.info(f"✅ Web dashboard running on port {port}")
         
         logger.info("🤖 Bot is running...")
-        # Iniciar el bot con el mismo loop
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
-        # Mantener el loop vivo
         while True:
             await asyncio.sleep(1)
     
-    # Ejecutar todo en un solo event loop
     try:
         asyncio.run(start_services())
     except KeyboardInterrupt:
