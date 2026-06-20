@@ -2858,22 +2858,22 @@ def health():
 def main():
     logger.info("🚀 Starting CryptoArch Agent...")
     
-    # Iniciar scheduler en thread separado (NO usa asyncio)
+    # Scheduler en hilo separado (no asíncrono)
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     logger.info("✅ Scheduler started")
     
-    # Iniciar el bot de Telegram y el WebSocket en el MISMO event loop
+    # Función asíncrona que agrupa WebSocket + Bot
     async def start_services():
         # Iniciar WebSocket en segundo plano si está habilitado
         if WS_ENABLED:
             asyncio.create_task(update_prices_from_websocket())
             logger.info("✅ WebSocket started")
         
-        # Iniciar el bot de Telegram
+        # Configurar el bot de Telegram
         application = Application.builder().token(TELEGRAM_TOKEN).build()
         
-        # Registrar comandos y handlers (igual que antes)
+        # Comandos
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("menu", menu_command))
         application.add_handler(CommandHandler("buy", buy))
@@ -2902,17 +2902,17 @@ def main():
         application.add_handler(CallbackQueryHandler(button_handler))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
         
-        # Iniciar Flask en un hilo separado (no asyncio)
+        # Iniciar Flask en hilo separado (no asíncrono)
         port = int(os.getenv("PORT", 8080))
         threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False), daemon=True).start()
         logger.info(f"✅ Web dashboard running on port {port}")
         
         logger.info("🤖 Bot is running...")
-        # Esto bloquea y usa el mismo loop
+        # Iniciar el bot con el mismo loop
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
-        # Mantener el loop en ejecución
+        # Mantener el loop vivo
         while True:
             await asyncio.sleep(1)
     
