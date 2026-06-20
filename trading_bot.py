@@ -14,7 +14,6 @@ import hashlib
 from datetime import datetime, timedelta
 from flask import Flask, request, render_template, jsonify
 from dotenv import load_dotenv
-import mercadopago
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from whale_advanced import (
@@ -41,11 +40,6 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     raise ValueError("❌ TELEGRAM_TOKEN not found. Set it in .env")
 
-MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
-if not MP_ACCESS_TOKEN:
-    raise ValueError("❌ MP_ACCESS_TOKEN not found in .env")
-
-MP_WEBHOOK_URL = os.getenv("MP_WEBHOOK_URL")
 BINANCE_REFERRAL_LINK = os.getenv("BINANCE_REFERRAL_LINK", "https://www.binance.com/en/register?ref=1249175745")
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -72,7 +66,7 @@ ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
 # ==================== IA PREDICTIVA AVANZADA ====================
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
 
-if not MP_WEBHOOK_SECRET or not DASHBOARD_API_KEY or not ADMIN_SECRET:
+if not DASHBOARD_API_KEY or not ADMIN_SECRET:
     raise ValueError("❌ Missing security variables in Railway")
 
 logger.info("✅ Security variables loaded")
@@ -1416,27 +1410,26 @@ async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 | Feature | Maestro | Banana Gun | Trojan | **CryptoArch Agent** |
 |---------|---------|------------|--------|----------------------|
-| **Commission** | 1% | 1%/0.5% | 1% | **0.5% → 0.3%** ✅ |
+| **Commission** | 1% | 0.5-1% | 1% | **0.3%** ✅ |
 | **Subscription** | $200/mo | ❌ | ❌ | **FREE** ✅ |
-| **Whale Alerts** | ❌ | ❌ | ❌ | ✅ **AI-powered** |
-| **Copy Trading** | ✅ | ✅ | ✅ | ✅ **Whale copy** |
-| **AI Analysis** | ❌ | ❌ | ❌ | ✅ **Contextual** |
-| **Multi-Chain** | 14 | 4 | 1 | **5 (growing)** |
-| **Free Trial** | ❌ | ❌ | ❌ | ✅ **14 days** |
-| **Anti-MEV** | ✅ | ✅ | ✅ | ✅ **Real** |
-| **Anti-Rug** | ✅ | ✅ | ❌ | ✅ **GoPlusLabs** |
-| **Whale Radar** | ❌ | ❌ | ❌ | ✅ **Predictive AI** |
-| **Panic Shield** | ❌ | ❌ | ❌ | ✅ **Emotional protection** |
-| **Token Reward** | ❌ | ❌ | ❌ | ✅ **0.05% of all commissions** |
+| **Multi-Chain** | 14 | 5 | 1 | **8 (growing)** ✅ |
+| **AI Predictions** | ❌ | ❌ | ❌ | **✅ ML Model** |
+| **Risk Scoring** | ❌ | ❌ | ❌ | **✅ 0-100 score** |
+| **Sentiment Analysis** | ❌ | ❌ | ❌ | **✅ X (Twitter)** |
+| **Anti-MEV / Anti-Rug** | ✅ | ✅ | ✅ (MEV) | **✅ GoPlusLabs** |
+| **Copy Trading** | ✅ | ✅ | ✅ | **✅ Whale copy** |
+| **Token Reward** | ❌ | ✅ (BANANA) | ❌ | **✅ $CARCH (Q4)** |
+| **Web Terminal** | ❌ | ✅ | ✅ | **✅ Dashboard** |
+| **Speed (Solana)** | 0.15s | 0.1s | 0.15s | **<0.1s (Jito)** 🔥 |
 
-💀 *The math is simple:* They charge 1%. We charge from 0.5% to 0.3%.  
+💀 *The math is simple:* They charge 1%. We charge 0.3%.  
 That's **up to 3.3x cheaper**. For a trader with $10,000 volume per month:
 - Maestro/Banana/Trojan: $100/month
 - CryptoArch Agent: $30/month (Pro level)
 
 **You save $70/month. Every month.**
 
-Plus, you get AI-powered whale analysis that *none of them* offer.
+Plus, you get AI-powered whale analysis, risk scoring, and sentiment analysis that *none of them* offer.
 
 Use /whale to see it in action.
 Use /copy to copy whales automatically.
@@ -1729,7 +1722,7 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid email address.")
         return
     set_user_email(chat_id, email)
-    await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Email saved: `{email}`.", parse_mode="Markdown")
 
 @rate_limited()
 async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2891,36 +2884,8 @@ def require_api_key(f):
 
 @webhook_app.route('/webhook', methods=['POST'])
 def webhook():
-    if not MP_WEBHOOK_URL:
-        return "Webhook disabled", 404
-    x_signature = request.headers.get('x-signature')
-    x_request_id = request.headers.get('x-request-id')
-    if not x_signature or not x_request_id:
-        logger.warning("Webhook without signature")
-        return "Missing signature", 401
-    raw_data = request.get_data()
-    secret = MP_WEBHOOK_SECRET.encode('utf-8')
-    computed = hmac.new(secret, raw_data, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(computed, x_signature):
-        logger.warning("Invalid webhook signature")
-        return "Invalid signature", 401
-    try:
-        data = request.json
-        logger.info(f"📩 Authenticated webhook: {data}")
-        if data.get("type") == "payment":
-            payment_id = data["data"]["id"]
-            sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-            payment_response = sdk.payment().get(payment_id)
-            payment_data = payment_response["response"]
-            status = payment_data.get("status")
-            ext = payment_data.get("external_reference")
-            if status == "approved" and ext and ":" in ext:
-                chat_id_str, plan_key = ext.split(":")
-                activate_premium(int(chat_id_str), plan_key)
-        return "OK", 200
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        return "Internal error", 500
+    # Webhook de pagos desactivado (MercadoPago eliminado)
+    return "Webhook desactivado", 404
 
 @webhook_app.route('/ping')
 def ping():
@@ -3055,10 +3020,9 @@ def delete_rule_api():
         return jsonify({"error": "Internal error"}), 500
 
 def run_webhook():
-    if not MP_WEBHOOK_URL:
-        return
-    port = int(os.getenv("PORT", 5000))
-    webhook_app.run(host='0.0.0.0', port=port, debug=False)
+    # Webhook desactivado (MercadoPago eliminado)
+    # Solo se ejecuta para mantener la compatibilidad con Railway
+    pass
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
@@ -3067,11 +3031,8 @@ if __name__ == "__main__":
         logger.critical("❌ Supabase not connected. Bot will not start for security.")
         exit(1)
 
-    if MP_WEBHOOK_URL:
-        threading.Thread(target=run_webhook, daemon=True).start()
-        logger.info("🔄 Webhook server started on port 5000 (or PORT env)")
-    else:
-        logger.info("⚠️ MP_WEBHOOK_URL not set. Webhook not started. Dashboard still available.")
+    # Webhook desactivado
+    logger.info("⚠️ Webhook de pagos desactivado (MercadoPago eliminado)")
 
     reschedule_reports()
 
