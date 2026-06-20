@@ -3,7 +3,7 @@ flask==2.3.2
 requests==2.31.0
 python-dotenv==1.0.0
 mercadopago==2.1.10
-feedparser==6.0.10
+feedparser==6.0.10 
 schedule==1.2.0
 supabase==1.0.3
 websockets==12.0
