@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 MODEL_PATH = "models/token_predictor.pkl"
 SCALER_PATH = "models/scaler.pkl"
 
-# ==================== GENERACIÓN DE DATOS SINTÉTICOS (para entrenamiento inicial) ====================
+# ==================== GENERACIÓN DE DATOS SINTÉTICOS ====================
 
 def generate_synthetic_data(n_samples=10000):
     """
@@ -134,7 +134,6 @@ def predict_growth(token_data: dict) -> dict:
         model, scaler = load_model()
     except Exception as e:
         logger.error(f"Error cargando modelo: {e}")
-        # Fallback: predicción basada en heurística simple
         return fallback_prediction(token_data)
     
     # Extraer características en el orden correcto
@@ -162,15 +161,12 @@ def predict_growth(token_data: dict) -> dict:
     try:
         predictions = [tree.predict(features_scaled)[0] for tree in model.estimators_]
         std_dev = np.std(predictions)
-        # Confianza inversamente proporcional a la desviación estándar
-        confidence = max(0, min(1, 1 - (std_dev / 50)))  # 50% de desviación = 0 confianza
+        confidence = max(0, min(1, 1 - (std_dev / 50)))
     except:
-        confidence = 0.5  # Valor por defecto
+        confidence = 0.5
     
-    # Redondear predicción
-    prediction = max(0, min(200, prediction))  # Limitar entre 0 y 200%
+    prediction = max(0, min(200, prediction))
     
-    # Recomendación basada en predicción y confianza
     if prediction > 50 and confidence > 0.6:
         recommendation = "BUY"
     elif prediction > 20 and confidence > 0.4:
@@ -188,7 +184,7 @@ def predict_growth(token_data: dict) -> dict:
         }
     }
 
-# ==================== FALLBACK HEURÍSTICO (si el modelo falla) ====================
+# ==================== FALLBACK HEURÍSTICO ====================
 
 def fallback_prediction(token_data: dict) -> dict:
     """
@@ -200,7 +196,6 @@ def fallback_prediction(token_data: dict) -> dict:
     age = token_data.get("age_hours", 24)
     change = token_data.get("price_change_24h", 0)
     
-    # Heurística simple
     score = 0
     if volume > 50000:
         score += 30
@@ -223,8 +218,8 @@ def fallback_prediction(token_data: dict) -> dict:
     elif age < 24:
         score += 5
     
-    prediction = min(100, score)  # Normalizar a 0-100%
-    confidence = 0.5  # Confianza baja por ser heurística
+    prediction = min(100, score)
+    confidence = 0.5
     
     if prediction > 60:
         recommendation = "BUY"
@@ -259,16 +254,13 @@ def retrain_with_real_data(df: pd.DataFrame):
     train_model(X, y)
     logger.info("✅ Modelo reentrenado con datos reales.")
 
-# ==================== EJEMPLO DE USO (si se ejecuta directamente) ====================
+# ==================== EJEMPLO DE USO ====================
 
 if __name__ == "__main__":
-    # Configurar logging básico para pruebas
     logging.basicConfig(level=logging.INFO)
     
-    # Probar carga y predicción
     print("🧠 Probando modelo de predicción...")
     
-    # Datos de ejemplo para un token realista
     test_token = {
         "volume_24h": 75000,
         "liquidity_usd": 45000,
@@ -282,4 +274,3 @@ if __name__ == "__main__":
     print(f"  - Predicción de crecimiento: {prediction['prediction']:.2f}%")
     print(f"  - Confianza: {prediction['confidence']:.2f}")
     print(f"  - Recomendación: {prediction['recommendation']}")
-    print(f"  - Detalles: {prediction.get('details', {})}")
