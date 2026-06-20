@@ -5,6 +5,9 @@ import requests
 from datetime import datetime
 from supabase import create_client, Client
 
+# Importar el modelo de ML
+from ml_model import predict_growth
+
 logger = logging.getLogger(__name__)
 
 # ==================== CONFIGURACIÓN ====================
@@ -239,6 +242,9 @@ def store_token(token_data: dict) -> bool:
                 "buy_tax": token_data.get("buy_tax", 0),
                 "sell_tax": token_data.get("sell_tax", 0),
                 "holder_count": token_data.get("holder_count", 0),
+                "ml_prediction": token_data.get("ml_prediction", 0),
+                "ml_confidence": token_data.get("ml_confidence", 0),
+                "ml_recommendation": token_data.get("ml_recommendation", "N/A"),
                 "warnings": token_data.get("warnings", []),
                 "created_at": datetime.now().isoformat()
             }).execute()
@@ -308,6 +314,18 @@ def scan_new_pools() -> list:
                 # Calcular score de oportunidad
                 token_data["opportunity_score"] = calculate_opportunity_score(token_data)
                 
+                # ===== NUEVO: PREDICCIÓN CON IA =====
+                try:
+                    ml_result = predict_growth(token_data)
+                    token_data["ml_prediction"] = ml_result["prediction"]
+                    token_data["ml_confidence"] = ml_result["confidence"]
+                    token_data["ml_recommendation"] = ml_result["recommendation"]
+                except Exception as e:
+                    logger.error(f"Error en predicción ML para {token_data['base_token']}: {e}")
+                    token_data["ml_prediction"] = 0
+                    token_data["ml_confidence"] = 0
+                    token_data["ml_recommendation"] = "N/A"
+                
                 # Si es honeypot o riesgo alto, descartar
                 if security.get("is_honeypot", False) or token_data["risk_score"] > 50:
                     continue
@@ -319,7 +337,7 @@ def scan_new_pools() -> list:
     return new_tokens
 
 def format_token_message(token: dict) -> str:
-    """Formatea un token para mostrarlo en un mensaje de Telegram, incluyendo scores."""
+    """Formatea un token para mostrarlo en un mensaje de Telegram, incluyendo todos los scores."""
     chain_emoji = {
         "ethereum": "⟠",
         "bsc": "🟡",
@@ -335,6 +353,7 @@ def format_token_message(token: dict) -> str:
     # Emojis para los scores
     risk_emoji = "🟢" if token.get("risk_score", 0) < 20 else "🟡" if token.get("risk_score", 0) < 50 else "🔴"
     opp_emoji = "🟢" if token.get("opportunity_score", 0) > 70 else "🟡" if token.get("opportunity_score", 0) > 40 else "🔴"
+    ml_emoji = "🟢" if token.get("ml_recommendation", "N/A") == "BUY" else "🟡" if token.get("ml_recommendation", "N/A") == "WAIT" else "🔴"
     
     msg = f"{emoji} *{token['base_token']}* / *{token['quote_token']}*\n"
     msg += f"   💰 Liquidity: ${token.get('liquidity_usd', 0):,.0f}\n"
@@ -342,6 +361,8 @@ def format_token_message(token: dict) -> str:
     msg += f"   📈 24h Change: {token.get('price_change_24h', 0):+.1f}%\n"
     msg += f"   🛡️ *Riesgo:* {risk_emoji} {token.get('risk_score', 0)}/100\n"
     msg += f"   🚀 *Oportunidad:* {opp_emoji} {token.get('opportunity_score', 0)}/100\n"
+    msg += f"   🧠 *IA (crecimiento):* {ml_emoji} {token.get('ml_prediction', 0):.1f}% (confianza {token.get('ml_confidence', 0):.0f}%)\n"
+    msg += f"   🤖 *Recomendación IA:* {token.get('ml_recommendation', 'N/A')}\n"
     
     if token.get("warnings"):
         for warn in token["warnings"][:2]:
@@ -356,7 +377,7 @@ def format_token_message(token: dict) -> str:
     if token.get("age_hours"):
         msg += f"   🕒 Edad: {token.get('age_hours', 0):.1f} horas\n"
     
-    # Recomendación basada en scores
+    # Recomendación final basada en todos los scores
     if token.get("opportunity_score", 0) > 70 and token.get("risk_score", 0) < 30:
         msg += "\n✅ *RECOMENDACIÓN: COMPRA* - Alto potencial, bajo riesgo."
     elif token.get("opportunity_score", 0) > 50 and token.get("risk_score", 0) < 50:
