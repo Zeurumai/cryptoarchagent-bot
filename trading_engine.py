@@ -13,7 +13,18 @@ from solders.message import MessageV0
 from solders.pubkey import Pubkey
 from solders.system_program import TransferParams, transfer
 from solders.token.associated import get_associated_token_address
-from solders.token.constants import TOKEN_PROGRAM_ID
+
+# ========== CORRECCIÓN DEL IMPORT DE TOKEN_PROGRAM_ID ==========
+try:
+    from solders.program_id import TOKEN_PROGRAM_ID   # >= v0.18.0
+except ImportError:
+    try:
+        from solders.token.constants import TOKEN_PROGRAM_ID  # versión antigua
+    except ImportError:
+        # Definición manual (válida para todas las versiones)
+        TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+# ================================================================
+
 from binance.client import Client as BinanceClient
 from binance.enums import *
 import time
