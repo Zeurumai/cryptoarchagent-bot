@@ -67,7 +67,7 @@ ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
 
 if not DASHBOARD_API_KEY or not ADMIN_SECRET:
-    raise ValueError("❌ Missing security variables in Railway")
+    logger.warning("⚠️ Missing DASHBOARD_API_KEY or ADMIN_SECRET in Railway")
 
 logger.info("✅ Security variables loaded")
 logger.info(f"🧠 Advanced AI Predictor: {'ENABLED' if AI_MODEL_ENABLED else 'DISABLED'}")
@@ -587,16 +587,20 @@ def save_user_data():
 
 load_user_data()
 
-# ==================== SUPABASE ====================
+# ==================== SUPABASE (INICIALIZACIÓN SEGURA) ====================
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not configured. Using local files.")
-    supabase = None
+supabase = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info("✅ Connected to Supabase")
+    except Exception as e:
+        logger.error(f"❌ Error connecting to Supabase: {e}")
+        supabase = None
 else:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    logger.info("✅ Connected to Supabase")
+    logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not set. Using local files.")
 
 SUBSCRIBERS_FILE = "subscribers.json"
 
@@ -2095,6 +2099,9 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         trade_direction = "buy"
         emoji = "🟢"
     try:
+        if not supabase:
+            await query.edit_message_text("❌ Database not available.")
+            return
         settings = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
         if not settings.data or not settings.data[0].get("active", False):
             await query.edit_message_text(
@@ -2525,6 +2532,9 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limited()
 async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
+    if not supabase:
+        await update.message.reply_text("❌ Database not available.")
+        return
     try:
         rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
         if not rules.data:
@@ -2593,6 +2603,9 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if action not in ["buy", "sell"]:
                 await update.message.reply_text("❌ Action must be 'buy' or 'sell'")
                 return
+            if amount <= 0 or stop_loss < 0 or take_profit < 0:
+                await update.message.reply_text("❌ Amount, stop_loss and take_profit must be positive numbers.")
+                return
             data = {
                 "chat_id": chat_id,
                 "condition": condition,
@@ -2600,178 +2613,132 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "amount": amount,
                 "stop_loss": stop_loss,
                 "take_profit": take_profit,
-                "active": True
+                "active": True,
+                "created_at": datetime.now().isoformat()
             }
-            result = supabase.table("rules").insert(data).execute()
-            rule_id = result.data[0]["id"] if result.data else "N/A"
-            await update.message.reply_text(
-                f"✅ *Rule added successfully!*\n"
-                f"📌 Rule ID: `{rule_id}`\n\n"
-                f"Use `/rule list` to see all rules, or `/rule toggle {rule_id}` to pause it.",
-                parse_mode="Markdown"
-            )
+            supabase.table("rules").insert(data).execute()
+            await update.message.reply_text("✅ Rule created successfully.")
         except ValueError:
-            await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
+            await update.message.reply_text("❌ Invalid number format.")
         except Exception as e:
-            logger.error(f"Error adding rule: {e}")
-            await update.message.reply_text("❌ Internal error. Try again later.")
+            logger.error(f"Error creating rule: {e}")
+            await update.message.reply_text("❌ Internal error.")
     elif subcommand == "list":
-        try:
-            rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
-            if not rules.data:
-                await update.message.reply_text("🤖 No rules configured.")
-                return
-            text = "🤖 *Your rules:*\n\n"
-            for r in rules.data:
-                status = "✅" if r["active"] else "❌"
-                text += f"{status} *ID {r['id']}*: {r['condition']}\n"
-                text += f"   → {r['action'].upper()} ${r['amount']} USDT | SL: {r['stop_loss']}% | TP: {r['take_profit']}%\n"
-                text += f"   📌 `/rule toggle {r['id']}` · `/rule delete {r['id']}`\n\n"
-            await update.message.reply_text(text, parse_mode="Markdown")
-        except Exception as e:
-            logger.error(f"Error listing rules: {e}")
-            await update.message.reply_text("❌ Internal error. Try again later.")
+        await rules_menu(update, context)
     elif subcommand == "toggle":
         if len(args) < 2:
-            await update.message.reply_text("❌ Usage: `/rule toggle [id]`")
+            await update.message.reply_text("❌ Usage: /rule toggle [id]")
             return
         try:
             rule_id = int(args[1])
-            if str(rule_id) == chat_id:
-                await update.message.reply_text(
-                    "❌ That's your Telegram ID, not a rule ID.\n"
-                    "Use `/rule list` to see your rule IDs."
-                )
-                return
             rule = supabase.table("rules").select("*").eq("id", rule_id).eq("chat_id", chat_id).execute()
             if not rule.data:
                 await update.message.reply_text("❌ Rule not found.")
                 return
             new_status = not rule.data[0]["active"]
             supabase.table("rules").update({"active": new_status}).eq("id", rule_id).execute()
-            status_text = "activated" if new_status else "paused"
-            await update.message.reply_text(f"✅ Rule {rule_id} {status_text}.")
+            await update.message.reply_text(f"✅ Rule {rule_id} {'activated' if new_status else 'paused'}.")
         except ValueError:
-            await update.message.reply_text("❌ Invalid ID. Use `/rule list` to see your rule IDs.")
+            await update.message.reply_text("❌ Invalid ID.")
         except Exception as e:
             logger.error(f"Error toggling rule: {e}")
-            await update.message.reply_text("❌ Internal error. Try again later.")
+            await update.message.reply_text("❌ Internal error.")
     elif subcommand == "delete":
         if len(args) < 2:
-            await update.message.reply_text("❌ Usage: `/rule delete [id]`")
+            await update.message.reply_text("❌ Usage: /rule delete [id]")
             return
         try:
             rule_id = int(args[1])
-            if str(rule_id) == chat_id:
-                await update.message.reply_text(
-                    "❌ That's your Telegram ID, not a rule ID.\n"
-                    "Use `/rule list` to see your rule IDs."
-                )
-                return
             supabase.table("rules").delete().eq("id", rule_id).eq("chat_id", chat_id).execute()
             await update.message.reply_text(f"✅ Rule {rule_id} deleted.")
         except ValueError:
-            await update.message.reply_text("❌ Invalid ID. Use `/rule list` to see your rule IDs.")
+            await update.message.reply_text("❌ Invalid ID.")
         except Exception as e:
             logger.error(f"Error deleting rule: {e}")
-            await update.message.reply_text("❌ Internal error. Try again later.")
+            await update.message.reply_text("❌ Internal error.")
     else:
         await update.message.reply_text("❌ Unknown subcommand. Use: add, list, toggle, delete")
 
 @rate_limited()
-async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    try:
-        settings = supabase.table("snipe_settings").select("*").eq("chat_id", chat_id).execute()
-        if not settings.data:
-            text = "⚡ *Snipe settings*\n\nNo configuration found.\n\n"
-            text += "Use: `/snipe set [amount] [slippage] [chain] [on/off]`\n"
-            text += "Example: `/snipe set 50 5 ethereum on`\n"
-            text += "Chains: `ethereum` or `bsc`"
-            await update.message.reply_text(text, parse_mode="Markdown")
-            return
-        s = settings.data[0]
-        status = "✅ Active" if s["active"] else "❌ Paused"
-        text = (
-            f"⚡ *Snipe Settings*\n\n"
-            f"💰 Max amount: ${s['max_amount']} USDT\n"
-            f"📉 Slippage: {s['slippage']}%\n"
-            f"⛓️ Chain: {s['chain']}\n"
-            f"🔘 Status: {status}\n\n"
-            f"Commands:\n"
-            f"`/snipe set [amount] [slippage] [chain] [on/off]`\n"
-            f"`/snipe on` - Activate\n"
-            f"`/snipe off` - Pause"
-        )
-        await update.message.reply_text(text, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"Error in snipe_settings_menu: {e}")
-        await update.message.reply_text("❌ Internal error. Try again later.")
-
-@rate_limited()
-async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def snipe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
     if not supabase:
         await update.message.reply_text("❌ Database not available.")
         return
-    if len(args) == 0:
-        await snipe_settings_menu(update, context)
+    if not args:
+        try:
+            settings = supabase.table("sniper_settings").select("*").eq("chat_id", chat_id).execute()
+            if settings.data:
+                s = settings.data[0]
+                text = (
+                    f"🎯 *Sniper Settings*\n\n"
+                    f"💰 Max amount: {s['max_amount']} USDT\n"
+                    f"📉 Slippage: {s['slippage']}%\n"
+                    f"⛓️ Chain: {s['chain']}\n"
+                    f"🔒 Anti-MEV: {'✅' if s['anti_mev'] else '❌'}\n"
+                    f"✅ Active: {'✅ Yes' if s['active'] else '❌ No'}\n"
+                    f"⚡ Mode: {s.get('mode', 'normal')}\n"
+                    f"📊 Token: {s.get('token', 'any')}\n\n"
+                    f"To change: `/snipe set [amount] [slippage] [chain] [on/off]`\n"
+                    f"Example: `/snipe set 50 5 ethereum on`"
+                )
+                await update.message.reply_text(text, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(
+                    "🎯 *Sniper not configured*\n\n"
+                    "To set it up, use: `/snipe set [amount] [slippage] [chain] [on/off]`\n"
+                    "Example: `/snipe set 50 5 ethereum on`",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            logger.error(f"Error loading sniper settings: {e}")
+            await update.message.reply_text("❌ Internal error. Try again later.")
         return
-    subcommand = args[0].lower()
-    if subcommand == "set":
+    if args[0].lower() != "set":
+        await update.message.reply_text("❌ Usage: `/snipe set [amount] [slippage] [chain] [on/off]`")
+        return
+    try:
         if len(args) < 5:
-            await update.message.reply_text(
-                "❌ Usage: `/snipe set [amount] [slippage] [chain] [on/off]`\n"
-                "Example: `/snipe set 50 5 ethereum on`"
-            )
+            await update.message.reply_text("❌ Usage: `/snipe set [amount] [slippage] [chain] [on/off]`")
             return
-        try:
-            amount = float(args[1])
-            slippage = float(args[2])
-            chain = args[3].lower()
-            active = args[4].lower() == "on"
-            if chain not in ["ethereum", "bsc"]:
-                await update.message.reply_text("❌ Chain must be 'ethereum' or 'bsc'")
-                return
-            data = {
-                "chat_id": chat_id,
-                "max_amount": amount,
-                "slippage": slippage,
-                "chain": chain,
-                "active": active,
-                "updated_at": datetime.now().isoformat()
-            }
-            supabase.table("snipe_settings").upsert(data).execute()
-            await update.message.reply_text(
-                f"✅ *Snipe settings saved!*\n\n"
-                f"💰 Max amount: ${amount} USDT\n"
-                f"📉 Slippage: {slippage}%\n"
-                f"⛓️ Chain: {chain}\n"
-                f"🔘 Status: {'✅ Active' if active else '❌ Paused'}",
-                parse_mode="Markdown"
-            )
-        except ValueError:
-            await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
-        except Exception as e:
-            logger.error(f"Error saving snipe settings: {e}")
-            await update.message.reply_text("❌ Internal error. Try again later.")
-    elif subcommand == "on":
-        try:
-            supabase.table("snipe_settings").update({"active": True}).eq("chat_id", chat_id).execute()
-            await update.message.reply_text("✅ Snipe activated.")
-        except Exception as e:
-            logger.error(f"Error activating snipe: {e}")
-            await update.message.reply_text("❌ Internal error. Try again later.")
-    elif subcommand == "off":
-        try:
-            supabase.table("snipe_settings").update({"active": False}).eq("chat_id", chat_id).execute()
-            await update.message.reply_text("✅ Snipe paused.")
-        except Exception as e:
-            logger.error(f"Error pausing snipe: {e}")
-            await update.message.reply_text("❌ Internal error. Try again later.")
-    else:
-        await update.message.reply_text("❌ Unknown subcommand. Use: set, on, off")
+        max_amount = float(args[1])
+        slippage = float(args[2])
+        chain = args[3].lower()
+        active = args[4].lower() == "on"
+        if max_amount <= 0 or slippage < 0:
+            await update.message.reply_text("❌ Amount must be > 0 and slippage >= 0")
+            return
+        if chain not in ["ethereum", "bsc", "solana", "polygon", "arbitrum"]:
+            await update.message.reply_text("❌ Chain must be one of: ethereum, bsc, solana, polygon, arbitrum")
+            return
+        data = {
+            "chat_id": chat_id,
+            "max_amount": max_amount,
+            "slippage": slippage,
+            "chain": chain,
+            "active": active,
+            "anti_mev": True,
+            "mode": "normal",
+            "updated_at": datetime.now().isoformat()
+        }
+        supabase.table("sniper_settings").upsert(data).execute()
+        await update.message.reply_text(
+            f"✅ *Sniper settings saved!*\n\n"
+            f"💰 Max amount: {max_amount} USDT\n"
+            f"📉 Slippage: {slippage}%\n"
+            f"⛓️ Chain: {chain}\n"
+            f"✅ Active: {'✅ Yes' if active else '❌ No'}",
+            parse_mode="Markdown"
+        )
+    except ValueError:
+        await update.message.reply_text("❌ Invalid number format.")
+    except Exception as e:
+        logger.error(f"Error saving sniper settings: {e}")
+        await update.message.reply_text("❌ Internal error.")
+
+async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await snipe(update, context)
 
 @rate_limited()
 async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2785,307 +2752,168 @@ async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
             settings = supabase.table("sniper_settings").select("*").eq("chat_id", chat_id).execute()
             if settings.data:
                 s = settings.data[0]
-                mode_emoji = "⚡" if s["mode"] == "aggressive" else "⚖️" if s["mode"] == "moderate" else "🛡️"
-                status = "✅ Active" if s["active"] else "❌ Paused"
                 text = (
                     f"🎯 *Sniper X Settings*\n\n"
-                    f"💰 Max amount: ${s['max_amount']} USDT\n"
+                    f"💰 Max amount: {s['max_amount']} USDT\n"
                     f"📉 Slippage: {s['slippage']}%\n"
-                    f"🔄 Mode: {mode_emoji} {s['mode'].capitalize()}\n"
-                    f"🛡️ Anti-MEV: {'✅ ON' if s['anti_mev'] else '❌ OFF'}\n"
-                    f"🔘 Status: {status}\n\n"
-                    f"Commands:\n"
-                    f"`/sniper set [amount] [slippage] [mode] [anti_mev] [on/off]`\n"
-                    f"Modes: `aggressive`, `moderate`, `conservative`\n"
+                    f"⛓️ Chain: {s['chain']}\n"
+                    f"⚡ Mode: {s.get('mode', 'normal')}\n"
+                    f"🔒 Anti-MEV: {'✅' if s['anti_mev'] else '❌'}\n"
+                    f"✅ Active: {'✅ Yes' if s['active'] else '❌ No'}\n\n"
+                    f"To change: `/sniper set [amount] [slippage] [mode] [anti_mev] [on/off]`\n"
                     f"Example: `/sniper set 100 2 aggressive true on`"
                 )
                 await update.message.reply_text(text, parse_mode="Markdown")
             else:
                 await update.message.reply_text(
                     "🎯 *Sniper X not configured*\n\n"
-                    "Use: `/sniper set [amount] [slippage] [mode] [anti_mev] [on/off]`\n"
-                    "Modes: `aggressive`, `moderate`, `conservative`\n"
+                    "This feature provides ultra-fast execution with anti-MEV protection.\n"
+                    "To set it up, use: `/sniper set [amount] [slippage] [mode] [anti_mev] [on/off]`\n"
                     "Example: `/sniper set 100 2 aggressive true on`\n\n"
-                    "• Aggressive: max speed, higher slippage\n"
-                    "• Moderate: balanced speed/slippage\n"
-                    "• Conservative: lower speed, minimal slippage",
+                    "Modes:\n"
+                    "• `normal` - Standard execution\n"
+                    "• `aggressive` - Faster, higher slippage\n"
+                    "• `safe` - Slower, lower slippage",
                     parse_mode="Markdown"
                 )
         except Exception as e:
             logger.error(f"Error loading sniper settings: {e}")
             await update.message.reply_text("❌ Internal error. Try again later.")
         return
+    if args[0].lower() != "set":
+        await update.message.reply_text("❌ Usage: `/sniper set [amount] [slippage] [mode] [anti_mev] [on/off]`")
+        return
     try:
         if len(args) < 6:
             await update.message.reply_text("❌ Usage: `/sniper set [amount] [slippage] [mode] [anti_mev] [on/off]`")
             return
-        amount = float(args[1])
+        max_amount = float(args[1])
         slippage = float(args[2])
         mode = args[3].lower()
         anti_mev = args[4].lower() == "true"
         active = args[5].lower() == "on"
-        if mode not in ["aggressive", "moderate", "conservative"]:
-            await update.message.reply_text("❌ Mode must be 'aggressive', 'moderate' or 'conservative'")
-            return
-        if amount <= 0 or slippage < 0:
+        if max_amount <= 0 or slippage < 0:
             await update.message.reply_text("❌ Amount must be > 0 and slippage >= 0")
+            return
+        if mode not in ["normal", "aggressive", "safe"]:
+            await update.message.reply_text("❌ Mode must be: normal, aggressive, safe")
             return
         data = {
             "chat_id": chat_id,
-            "max_amount": amount,
+            "max_amount": max_amount,
             "slippage": slippage,
+            "chain": "ethereum",
             "mode": mode,
             "anti_mev": anti_mev,
             "active": active,
             "updated_at": datetime.now().isoformat()
         }
         supabase.table("sniper_settings").upsert(data).execute()
-        mode_emoji = "⚡" if mode == "aggressive" else "⚖️" if mode == "moderate" else "🛡️"
         await update.message.reply_text(
             f"✅ *Sniper X settings saved!*\n\n"
-            f"💰 Max amount: ${amount} USDT\n"
+            f"💰 Max amount: {max_amount} USDT\n"
             f"📉 Slippage: {slippage}%\n"
-            f"🔄 Mode: {mode_emoji} {mode.capitalize()}\n"
-            f"🛡️ Anti-MEV: {'✅ ON' if anti_mev else '❌ OFF'}\n"
-            f"🔘 Status: {'✅ Active' if active else '❌ Paused'}",
+            f"⚡ Mode: {mode}\n"
+            f"🔒 Anti-MEV: {'✅' if anti_mev else '❌'}\n"
+            f"✅ Active: {'✅ Yes' if active else '❌ No'}",
             parse_mode="Markdown"
         )
     except ValueError:
-        await update.message.reply_text("❌ Invalid number format. Use decimals with dot (ej: 50.0)")
+        await update.message.reply_text("❌ Invalid number format.")
     except Exception as e:
         logger.error(f"Error saving sniper settings: {e}")
-        await update.message.reply_text("❌ Internal error. Try again later.")
+        await update.message.reply_text("❌ Internal error.")
 
-# ==================== WEBHOOK + WEB TERMINAL ====================
-trade_history = []
+def run_scheduler():
+    schedule.every(60).seconds.do(check_alerts)
+    schedule.every(5).minutes.do(check_new_tokens)
+    reschedule_reports()
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
 
-def add_trade_to_history(symbol, action, amount, price, pnl=None):
-    trade_history.append({
-        "timestamp": datetime.now().isoformat(),
-        "symbol": symbol,
-        "action": action,
-        "amount": amount,
-        "price": price,
-        "pnl": pnl if pnl is not None else 0.0
-    })
-    if len(trade_history) > 100:
-        trade_history.pop(0)
+# ==================== WEBHOOK PARA MERCADO PAGO (OPCIONAL) ====================
+app = Flask(__name__)
 
-webhook_app = Flask(__name__, template_folder='templates')
-
-def require_api_key(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        provided_key = request.headers.get('X-API-Key')
-        if not provided_key or provided_key != DASHBOARD_API_KEY:
-            return jsonify({"error": "Unauthorized"}), 401
-        return f(*args, **kwargs)
-    return decorated
-
-@webhook_app.route('/webhook', methods=['POST'])
-def webhook():
-    # Webhook de pagos desactivado (MercadoPago eliminado)
-    return "Webhook desactivado", 404
-
-@webhook_app.route('/ping')
-def ping():
+@app.route('/webhook/mp', methods=['POST'])
+def mercadopago_webhook():
+    if MP_WEBHOOK_SECRET:
+        signature = request.headers.get('X-Signature')
+        if not signature:
+            return "No signature", 401
+        # Verificar firma (simplificado)
+        # En producción, implementar verificación HMAC
+    data = request.json
+    if data and data.get('action') == 'payment.created':
+        payment_id = data.get('data', {}).get('id')
+        logger.info(f"🔔 MercadoPago webhook: Payment {payment_id}")
+        # Aquí podrías activar premium usando el email del pagador
     return "OK", 200
 
-@webhook_app.route('/dashboard')
-def dashboard():
-    return render_template('dashboard.html', DASHBOARD_API_KEY=DASHBOARD_API_KEY)
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok", "version": "1.0"})
 
-@webhook_app.route('/api/market_data')
-@require_api_key
-def market_data():
-    prices = get_all_prices()
-    if not prices:
-        return jsonify({"error": "No market data"}), 500
-    fg = get_fear_greed_index()
-    market = {}
-    for coin_id, symbol, name in COINS:
-        if coin_id in prices:
-            data = prices[coin_id]
-            market[symbol] = {
-                "price": data.get("usd", 0),
-                "change_24h": data.get("usd_24h_change", 0),
-                "volume_24h": data.get("usd_24h_vol", 0),
-            }
-    history = []
-    for i in range(30):
-        history.append({
-            "time": (datetime.now() - timedelta(minutes=i*5)).isoformat(),
-            "BTC": 60000 + (i * 100) + (i * 0.5)
-        })
-    return jsonify({
-        "market": market,
-        "fear_greed": fg,
-        "history": history,
-        "timestamp": time.time()
-    })
+# ==================== INICIO ====================
+def main():
+    logger.info("🚀 Starting CryptoArch Agent...")
+    
+    # Iniciar scheduler en thread separado
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.start()
+    logger.info("✅ Scheduler started")
+    
+    # Iniciar WebSocket en un bucle de eventos separado
+    if WS_ENABLED:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        threading.Thread(target=loop.run_forever, daemon=True).start()
+        asyncio.run_coroutine_threadsafe(update_prices_from_websocket(), loop)
+        logger.info("✅ WebSocket started")
+    
+    # Iniciar Flask en otro hilo
+    port = int(os.getenv("PORT", 8080))
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False), daemon=True).start()
+    logger.info(f"✅ Web dashboard running on port {port}")
+    
+    # Iniciar bot de Telegram
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    # Comandos
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("menu", menu_command))
+    application.add_handler(CommandHandler("buy", buy))
+    application.add_handler(CommandHandler("sell", sell))
+    application.add_handler(CommandHandler("whale", whale))
+    application.add_handler(CommandHandler("copy", copy))
+    application.add_handler(CommandHandler("predict", predict_command))
+    application.add_handler(CommandHandler("newtokens", newtokens_command))
+    application.add_handler(CommandHandler("plans", plans_command))
+    application.add_handler(CommandHandler("info", info_command))
+    application.add_handler(CommandHandler("news", news_command))
+    application.add_handler(CommandHandler("id", id_command))
+    application.add_handler(CommandHandler("balance", balance))
+    application.add_handler(CommandHandler("premium", premium))
+    application.add_handler(CommandHandler("activate", activate))
+    application.add_handler(CommandHandler("plan", plan))
+    application.add_handler(CommandHandler("setemail", setemail))
+    application.add_handler(CommandHandler("lang", lang_command))
+    application.add_handler(CommandHandler("rule", rule_command))
+    application.add_handler(CommandHandler("snipe", snipe))
+    application.add_handler(CommandHandler("sniper", sniper))
+    application.add_handler(CommandHandler("compare", compare))
+    application.add_handler(CommandHandler("terms", terms_command))
+    application.add_handler(CommandHandler("accept", accept_terms))
+    application.add_handler(CommandHandler("force_premium", force_premium))
+    
+    # Callbacks
+    application.add_handler(CallbackQueryHandler(button_handler))
+    
+    # Mensajes de texto
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
+    
+    logger.info("🤖 Bot is running...")
+    application.run_polling()
 
-@webhook_app.route('/api/trade_history')
-@require_api_key
-def trade_history_api():
-    return jsonify(trade_history)
-
-@webhook_app.route('/api/settings/<chat_id>')
-@require_api_key
-def get_settings_api(chat_id):
-    if not supabase:
-        return jsonify({"error": "Database not connected"}), 500
-    try:
-        sniper = supabase.table("sniper_settings").select("*").eq("chat_id", chat_id).execute()
-        sniper_data = sniper.data[0] if sniper.data else {}
-        copy = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
-        copy_data = copy.data[0] if copy.data else {}
-        rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
-        rules_data = rules.data if rules.data else []
-        return jsonify({
-            "sniper": sniper_data,
-            "copy": copy_data,
-            "rules": rules_data
-        })
-    except Exception as e:
-        logger.error(f"Error getting settings: {e}")
-        return jsonify({"error": "Internal error"}), 500
-
-@webhook_app.route('/api/update_sniper', methods=['POST'])
-@require_api_key
-def update_sniper_api():
-    if not supabase:
-        return jsonify({"error": "Database not connected"}), 500
-    try:
-        data = request.json
-        chat_id = data.get("chat_id")
-        field = data.get("field")
-        value = data.get("value")
-        if not chat_id or not field:
-            return jsonify({"error": "Missing parameters"}), 400
-        supabase.table("sniper_settings").update({field: value}).eq("chat_id", chat_id).execute()
-        return jsonify({"success": True})
-    except Exception as e:
-        logger.error(f"Error updating sniper: {e}")
-        return jsonify({"error": "Internal error"}), 500
-
-@webhook_app.route('/api/update_copy', methods=['POST'])
-@require_api_key
-def update_copy_api():
-    if not supabase:
-        return jsonify({"error": "Database not connected"}), 500
-    try:
-        data = request.json
-        chat_id = data.get("chat_id")
-        field = data.get("field")
-        value = data.get("value")
-        if not chat_id or not field:
-            return jsonify({"error": "Missing parameters"}), 400
-        supabase.table("copy_settings").update({field: value}).eq("chat_id", chat_id).execute()
-        return jsonify({"success": True})
-    except Exception as e:
-        logger.error(f"Error updating copy: {e}")
-        return jsonify({"error": "Internal error"}), 500
-
-@webhook_app.route('/api/toggle_rule', methods=['POST'])
-@require_api_key
-def toggle_rule_api():
-    if not supabase:
-        return jsonify({"error": "Database not connected"}), 500
-    try:
-        data = request.json
-        rule_id = data.get("rule_id")
-        active = data.get("active")
-        if not rule_id:
-            return jsonify({"error": "Missing rule_id"}), 400
-        supabase.table("rules").update({"active": active}).eq("id", rule_id).execute()
-        return jsonify({"success": True})
-    except Exception as e:
-        logger.error(f"Error toggling rule: {e}")
-        return jsonify({"error": "Internal error"}), 500
-
-@webhook_app.route('/api/delete_rule', methods=['POST'])
-@require_api_key
-def delete_rule_api():
-    if not supabase:
-        return jsonify({"error": "Database not connected"}), 500
-    try:
-        data = request.json
-        rule_id = data.get("rule_id")
-        if not rule_id:
-            return jsonify({"error": "Missing rule_id"}), 400
-        supabase.table("rules").delete().eq("id", rule_id).execute()
-        return jsonify({"success": True})
-    except Exception as e:
-        logger.error(f"Error deleting rule: {e}")
-        return jsonify({"error": "Internal error"}), 500
-
-def run_webhook():
-    # Webhook desactivado (MercadoPago eliminado)
-    # Solo se ejecuta para mantener la compatibilidad con Railway
-    pass
-
-# ==================== MAIN ====================
 if __name__ == "__main__":
-    subscribers = load_subscribers()
-    if not supabase:
-        logger.critical("❌ Supabase not connected. Bot will not start for security.")
-        exit(1)
-
-    # Webhook desactivado
-    logger.info("⚠️ Webhook de pagos desactivado (MercadoPago eliminado)")
-
-    reschedule_reports()
-
-    if os.getenv("NEW_TOKEN_ALERTS", "false").lower() == "true":
-        interval = int(os.getenv("NEW_TOKEN_SCAN_INTERVAL", "300"))
-        schedule.every(interval).seconds.do(check_new_tokens)
-        logger.info(f"🔄 New token scanner scheduled every {interval} seconds")
-
-    import asyncio
-
-    async def main():
-        if WS_ENABLED:
-            asyncio.create_task(update_prices_from_websocket())
-            logger.info("🔄 WebSocket price listener started in background.")
-        else:
-            logger.info("ℹ️ WebSocket disabled (WS_ENABLED=false). Using REST.")
-
-        app = Application.builder().token(TELEGRAM_TOKEN).build()
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("menu", menu_command))
-        app.add_handler(CommandHandler("balance", balance))
-        app.add_handler(CommandHandler("premium", premium))
-        app.add_handler(CommandHandler("plans", plans_command))
-        app.add_handler(CommandHandler("id", id_command))
-        app.add_handler(CommandHandler("whale", whale))
-        app.add_handler(CommandHandler("predict", predict_command))
-        app.add_handler(CommandHandler("newtokens", newtokens_command))
-        app.add_handler(CommandHandler("lang", lang_command))
-        app.add_handler(CommandHandler("terms", terms_command))
-        app.add_handler(CommandHandler("accept", accept_terms))
-        app.add_handler(CommandHandler("info", info_command))
-        app.add_handler(CommandHandler("news", news_command))
-        app.add_handler(CommandHandler("buy", buy))
-        app.add_handler(CommandHandler("sell", sell))
-        app.add_handler(CommandHandler("activate", activate))
-        app.add_handler(CommandHandler("plan", plan))
-        app.add_handler(CommandHandler("setemail", setemail))
-        app.add_handler(CommandHandler("force_premium", force_premium))
-        app.add_handler(CommandHandler("copy", copy))
-        app.add_handler(CommandHandler("rule", rule_command))
-        app.add_handler(CommandHandler("snipe", snipe_command))
-        app.add_handler(CommandHandler("sniper", sniper))
-        app.add_handler(CommandHandler("compare", compare))
-        app.add_handler(CallbackQueryHandler(button_handler))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
-
-        await app.initialize()
-        await app.start()
-        await app.updater.start_polling()
-
-        logger.info("🚀 Trading bot started successfully (Fase 8.5: New Tokens Scanner + AI Advanced + Bilingual)")
-
-        while True:
-            await asyncio.sleep(1)
-
-    asyncio.run(main())
+    main()
