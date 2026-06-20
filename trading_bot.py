@@ -14,7 +14,6 @@ import hashlib
 from datetime import datetime, timedelta
 from flask import Flask, request, render_template, jsonify
 from dotenv import load_dotenv
-# import mercadopago  # <--- ELIMINADO: ya no se usa
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from whale_advanced import (
@@ -41,12 +40,6 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     raise ValueError("❌ TELEGRAM_TOKEN not found. Set it in .env")
 
-# MP_ACCESS_TOKEN ya no es obligatorio
-MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
-if not MP_ACCESS_TOKEN:
-    logger.warning("⚠️ MP_ACCESS_TOKEN not set. MercadoPago payments disabled.")
-
-MP_WEBHOOK_URL = os.getenv("MP_WEBHOOK_URL")
 BINANCE_REFERRAL_LINK = os.getenv("BINANCE_REFERRAL_LINK", "https://www.binance.com/en/register?ref=1249175745")
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -73,37 +66,7 @@ ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
 # ==================== IA PREDICTIVA AVANZADA ====================
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
 
-# Ahora solo requerimos DASHBOARD_API_KEY y ADMIN_SECRET
 if not DASHBOARD_API_KEY or not ADMIN_SECRET:
-    raise ValueError("❌ Missing DASHBOARD_API_KEY or ADMIN_SECRET in Railway")
-if not MP_WEBHOOK_SECRET:
-    logger.warning("⚠️ MP_WEBHOOK_SECRET not set. MercadoPago webhook disabled.")
-
-logger.info("✅ Security variables loaded")
-logger.info(f"🧠 Advanced AI Predictor: {'ENABLED' if AI_MODEL_ENABLED else 'DISABLED'}")
-
-# ==================== SEGURIDAD ====================
-ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "8355456581").split(",")))
-ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
-MP_WEBHOOK_SECRET = os.getenv("MP_WEBHOOK_SECRET", "")
-DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
-RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "20"))
-RATE_LIMIT_PERIOD = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
-
-# ==================== WEBSOCKET ====================
-WS_ENABLED = os.getenv("WS_ENABLED", "true").lower() == "true"
-WS_EXCHANGE = os.getenv("WS_EXCHANGE", "kraken").lower()
-PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))
-
-# ==================== SEGURIDAD ANTI-MEV / ANTI-RUG ====================
-GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")
-ANTI_MEV_ENABLED = os.getenv("ANTI_MEV_ENABLED", "true").lower() == "true"
-ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
-
-# ==================== IA PREDICTIVA AVANZADA ====================
-AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
-
-if not MP_WEBHOOK_SECRET or not DASHBOARD_API_KEY or not ADMIN_SECRET:
     raise ValueError("❌ Missing security variables in Railway")
 
 logger.info("✅ Security variables loaded")
@@ -1447,27 +1410,26 @@ async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 | Feature | Maestro | Banana Gun | Trojan | **CryptoArch Agent** |
 |---------|---------|------------|--------|----------------------|
-| **Commission** | 1% | 1%/0.5% | 1% | **0.5% → 0.3%** ✅ |
+| **Commission** | 1% | 0.5-1% | 1% | **0.3%** ✅ |
 | **Subscription** | $200/mo | ❌ | ❌ | **FREE** ✅ |
-| **Whale Alerts** | ❌ | ❌ | ❌ | ✅ **AI-powered** |
-| **Copy Trading** | ✅ | ✅ | ✅ | ✅ **Whale copy** |
-| **AI Analysis** | ❌ | ❌ | ❌ | ✅ **Contextual** |
-| **Multi-Chain** | 14 | 4 | 1 | **5 (growing)** |
-| **Free Trial** | ❌ | ❌ | ❌ | ✅ **14 days** |
-| **Anti-MEV** | ✅ | ✅ | ✅ | ✅ **Real** |
-| **Anti-Rug** | ✅ | ✅ | ❌ | ✅ **GoPlusLabs** |
-| **Whale Radar** | ❌ | ❌ | ❌ | ✅ **Predictive AI** |
-| **Panic Shield** | ❌ | ❌ | ❌ | ✅ **Emotional protection** |
-| **Token Reward** | ❌ | ❌ | ❌ | ✅ **0.05% of all commissions** |
+| **Multi-Chain** | 14 | 5 | 1 | **8 (growing)** ✅ |
+| **AI Predictions** | ❌ | ❌ | ❌ | **✅ ML Model** |
+| **Risk Scoring** | ❌ | ❌ | ❌ | **✅ 0-100 score** |
+| **Sentiment Analysis** | ❌ | ❌ | ❌ | **✅ X (Twitter)** |
+| **Anti-MEV / Anti-Rug** | ✅ | ✅ | ✅ (MEV) | **✅ GoPlusLabs** |
+| **Copy Trading** | ✅ | ✅ | ✅ | **✅ Whale copy** |
+| **Token Reward** | ❌ | ✅ (BANANA) | ❌ | **✅ $CARCH (Q4)** |
+| **Web Terminal** | ❌ | ✅ | ✅ | **✅ Dashboard** |
+| **Speed (Solana)** | 0.15s | 0.1s | 0.15s | **<0.1s (Jito)** 🔥 |
 
-💀 *The math is simple:* They charge 1%. We charge from 0.5% to 0.3%.  
+💀 *The math is simple:* They charge 1%. We charge 0.3%.  
 That's **up to 3.3x cheaper**. For a trader with $10,000 volume per month:
 - Maestro/Banana/Trojan: $100/month
 - CryptoArch Agent: $30/month (Pro level)
 
 **You save $70/month. Every month.**
 
-Plus, you get AI-powered whale analysis that *none of them* offer.
+Plus, you get AI-powered whale analysis, risk scoring, and sentiment analysis that *none of them* offer.
 
 Use /whale to see it in action.
 Use /copy to copy whales automatically.
@@ -1760,7 +1722,7 @@ async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid email address.")
         return
     set_user_email(chat_id, email)
-    await update.message.reply_text(f"✅ Email saved: `{email}`. You can now use /pay.", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Email saved: `{email}`.", parse_mode="Markdown")
 
 @rate_limited()
 async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2922,39 +2884,9 @@ def require_api_key(f):
 
 @webhook_app.route('/webhook', methods=['POST'])
 def webhook():
+    # Webhook desactivado (ya no usamos MercadoPago)
     logger.info("ℹ️ Webhook received but MercadoPago is disabled.")
     return "MP disabled", 200
-def webhook():
-    if not MP_WEBHOOK_URL:
-        return "Webhook disabled", 404
-    x_signature = request.headers.get('x-signature')
-    x_request_id = request.headers.get('x-request-id')
-    if not x_signature or not x_request_id:
-        logger.warning("Webhook without signature")
-        return "Missing signature", 401
-    raw_data = request.get_data()
-    secret = MP_WEBHOOK_SECRET.encode('utf-8')
-    computed = hmac.new(secret, raw_data, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(computed, x_signature):
-        logger.warning("Invalid webhook signature")
-        return "Invalid signature", 401
-    try:
-        data = request.json
-        logger.info(f"📩 Authenticated webhook: {data}")
-        if data.get("type") == "payment":
-            payment_id = data["data"]["id"]
-            sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-            payment_response = sdk.payment().get(payment_id)
-            payment_data = payment_response["response"]
-            status = payment_data.get("status")
-            ext = payment_data.get("external_reference")
-            if status == "approved" and ext and ":" in ext:
-                chat_id_str, plan_key = ext.split(":")
-                activate_premium(int(chat_id_str), plan_key)
-        return "OK", 200
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        return "Internal error", 500
 
 @webhook_app.route('/ping')
 def ping():
@@ -3088,102 +3020,65 @@ def delete_rule_api():
         logger.error(f"Error deleting rule: {e}")
         return jsonify({"error": "Internal error"}), 500
 
-def run_webhook():
-    if not MP_WEBHOOK_URL:
-        return
-    port = int(os.getenv("PORT", 5000))
-    webhook_app.run(host='0.0.0.0', port=port, debug=False)
-
-# ==================== FUNCIÓN DEL SCHEDULER ====================
-def run_scheduler():
-    """Ejecuta las tareas programadas en un hilo separado."""
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-
 # ==================== MAIN ====================
 if __name__ == "__main__":
-    # Inicializar datos y conexiones
     subscribers = load_subscribers()
     if not supabase:
         logger.critical("❌ Supabase not connected. Bot will not start for security.")
         exit(1)
 
-    # Desactivar webhook de MP
-    logger.info("ℹ️ MercadoPago webhook disabled. Dashboard still available.")
-
-    # Iniciar scheduler en hilo separado
-    threading.Thread(target=run_scheduler, daemon=True).start()
-    logger.info("✅ Scheduler started")
-
-    # Programar reports
     reschedule_reports()
 
-    # Programar escáner de nuevos tokens si está habilitado
     if os.getenv("NEW_TOKEN_ALERTS", "false").lower() == "true":
         interval = int(os.getenv("NEW_TOKEN_SCAN_INTERVAL", "300"))
         schedule.every(interval).seconds.do(check_new_tokens)
         logger.info(f"🔄 New token scanner scheduled every {interval} seconds")
 
-    # Iniciar el bot de Telegram y WebSocket en un único event loop
-    async def start_services():
+    import asyncio
+
+    async def main():
         if WS_ENABLED:
             asyncio.create_task(update_prices_from_websocket())
             logger.info("🔄 WebSocket price listener started in background.")
         else:
             logger.info("ℹ️ WebSocket disabled (WS_ENABLED=false). Using REST.")
 
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
+        app = Application.builder().token(TELEGRAM_TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("menu", menu_command))
+        app.add_handler(CommandHandler("balance", balance))
+        app.add_handler(CommandHandler("premium", premium))
+        app.add_handler(CommandHandler("plans", plans_command))
+        app.add_handler(CommandHandler("id", id_command))
+        app.add_handler(CommandHandler("whale", whale))
+        app.add_handler(CommandHandler("predict", predict_command))
+        app.add_handler(CommandHandler("newtokens", newtokens_command))
+        app.add_handler(CommandHandler("lang", lang_command))
+        app.add_handler(CommandHandler("terms", terms_command))
+        app.add_handler(CommandHandler("accept", accept_terms))
+        app.add_handler(CommandHandler("info", info_command))
+        app.add_handler(CommandHandler("news", news_command))
+        app.add_handler(CommandHandler("buy", buy))
+        app.add_handler(CommandHandler("sell", sell))
+        app.add_handler(CommandHandler("activate", activate))
+        app.add_handler(CommandHandler("plan", plan))
+        app.add_handler(CommandHandler("setemail", setemail))
+        app.add_handler(CommandHandler("force_premium", force_premium))
+        app.add_handler(CommandHandler("copy", copy))
+        app.add_handler(CommandHandler("rule", rule_command))
+        app.add_handler(CommandHandler("snipe", snipe_command))
+        app.add_handler(CommandHandler("sniper", sniper))
+        app.add_handler(CommandHandler("compare", compare))
+        app.add_handler(CallbackQueryHandler(button_handler))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
 
-        # === REGISTRO DE COMANDOS ===
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("menu", menu_command))
-        application.add_handler(CommandHandler("buy", buy))
-        application.add_handler(CommandHandler("sell", sell))
-        application.add_handler(CommandHandler("whale", whale))
-        application.add_handler(CommandHandler("copy", copy))
-        application.add_handler(CommandHandler("predict", predict_command))
-        application.add_handler(CommandHandler("newtokens", newtokens_command))
-        application.add_handler(CommandHandler("plans", plans_command))
-        application.add_handler(CommandHandler("info", info_command))
-        application.add_handler(CommandHandler("news", news_command))
-        application.add_handler(CommandHandler("id", id_command))
-        application.add_handler(CommandHandler("balance", balance))
-        application.add_handler(CommandHandler("premium", premium))
-        application.add_handler(CommandHandler("activate", activate))
-        application.add_handler(CommandHandler("plan", plan))
-        application.add_handler(CommandHandler("setemail", setemail))
-        application.add_handler(CommandHandler("lang", lang_command))
-        application.add_handler(CommandHandler("rule", rule_command))
-        application.add_handler(CommandHandler("snipe", snipe_command))
-        application.add_handler(CommandHandler("sniper", sniper))
-        application.add_handler(CommandHandler("compare", compare))
-        application.add_handler(CommandHandler("terms", terms_command))
-        application.add_handler(CommandHandler("accept", accept_terms))
-        application.add_handler(CommandHandler("force_premium", force_premium))
-        application.add_handler(CallbackQueryHandler(button_handler))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
 
-        # Iniciar Flask en hilo separado (solo para el dashboard)
-        port = int(os.getenv("PORT", 8080))
-        threading.Thread(target=lambda: webhook_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False), daemon=True).start()
-        logger.info(f"✅ Web dashboard running on port {port}")
+        logger.info("🚀 Trading bot started successfully (Fase 8.5: New Tokens Scanner + AI Advanced + Bilingual)")
 
-        # Iniciar el bot
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling()
-
-        logger.info("🚀 Trading bot started successfully (Fase 8.5: New Tokens + AI Advanced + Bilingual)")
-
-        # Mantener el loop vivo
         while True:
             await asyncio.sleep(1)
 
-    try:
-        asyncio.run(start_services())
-    except KeyboardInterrupt:
-        logger.info("🛑 Bot stopped by user")
-    except Exception as e:
-        logger.error(f"❌ Fatal error: {e}")
-        raise
+    asyncio.run(main())
