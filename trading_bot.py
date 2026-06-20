@@ -2858,62 +2858,69 @@ def health():
 def main():
     logger.info("🚀 Starting CryptoArch Agent...")
     
-    # Iniciar scheduler en thread separado
+    # Iniciar scheduler en thread separado (NO usa asyncio)
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     logger.info("✅ Scheduler started")
     
-    # Iniciar WebSocket en un bucle de eventos separado
-    if WS_ENABLED:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        threading.Thread(target=loop.run_forever, daemon=True).start()
-        asyncio.run_coroutine_threadsafe(update_prices_from_websocket(), loop)
-        logger.info("✅ WebSocket started")
+    # Iniciar el bot de Telegram y el WebSocket en el MISMO event loop
+    async def start_services():
+        # Iniciar WebSocket en segundo plano si está habilitado
+        if WS_ENABLED:
+            asyncio.create_task(update_prices_from_websocket())
+            logger.info("✅ WebSocket started")
+        
+        # Iniciar el bot de Telegram
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
+        
+        # Registrar comandos y handlers (igual que antes)
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("menu", menu_command))
+        application.add_handler(CommandHandler("buy", buy))
+        application.add_handler(CommandHandler("sell", sell))
+        application.add_handler(CommandHandler("whale", whale))
+        application.add_handler(CommandHandler("copy", copy))
+        application.add_handler(CommandHandler("predict", predict_command))
+        application.add_handler(CommandHandler("newtokens", newtokens_command))
+        application.add_handler(CommandHandler("plans", plans_command))
+        application.add_handler(CommandHandler("info", info_command))
+        application.add_handler(CommandHandler("news", news_command))
+        application.add_handler(CommandHandler("id", id_command))
+        application.add_handler(CommandHandler("balance", balance))
+        application.add_handler(CommandHandler("premium", premium))
+        application.add_handler(CommandHandler("activate", activate))
+        application.add_handler(CommandHandler("plan", plan))
+        application.add_handler(CommandHandler("setemail", setemail))
+        application.add_handler(CommandHandler("lang", lang_command))
+        application.add_handler(CommandHandler("rule", rule_command))
+        application.add_handler(CommandHandler("snipe", snipe))
+        application.add_handler(CommandHandler("sniper", sniper))
+        application.add_handler(CommandHandler("compare", compare))
+        application.add_handler(CommandHandler("terms", terms_command))
+        application.add_handler(CommandHandler("accept", accept_terms))
+        application.add_handler(CommandHandler("force_premium", force_premium))
+        application.add_handler(CallbackQueryHandler(button_handler))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
+        
+        # Iniciar Flask en un hilo separado (no asyncio)
+        port = int(os.getenv("PORT", 8080))
+        threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False), daemon=True).start()
+        logger.info(f"✅ Web dashboard running on port {port}")
+        
+        logger.info("🤖 Bot is running...")
+        # Esto bloquea y usa el mismo loop
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+        # Mantener el loop en ejecución
+        while True:
+            await asyncio.sleep(1)
     
-    # Iniciar Flask en otro hilo
-    port = int(os.getenv("PORT", 8080))
-    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False), daemon=True).start()
-    logger.info(f"✅ Web dashboard running on port {port}")
-    
-    # Iniciar bot de Telegram
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    # Comandos
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("menu", menu_command))
-    application.add_handler(CommandHandler("buy", buy))
-    application.add_handler(CommandHandler("sell", sell))
-    application.add_handler(CommandHandler("whale", whale))
-    application.add_handler(CommandHandler("copy", copy))
-    application.add_handler(CommandHandler("predict", predict_command))
-    application.add_handler(CommandHandler("newtokens", newtokens_command))
-    application.add_handler(CommandHandler("plans", plans_command))
-    application.add_handler(CommandHandler("info", info_command))
-    application.add_handler(CommandHandler("news", news_command))
-    application.add_handler(CommandHandler("id", id_command))
-    application.add_handler(CommandHandler("balance", balance))
-    application.add_handler(CommandHandler("premium", premium))
-    application.add_handler(CommandHandler("activate", activate))
-    application.add_handler(CommandHandler("plan", plan))
-    application.add_handler(CommandHandler("setemail", setemail))
-    application.add_handler(CommandHandler("lang", lang_command))
-    application.add_handler(CommandHandler("rule", rule_command))
-    application.add_handler(CommandHandler("snipe", snipe))
-    application.add_handler(CommandHandler("sniper", sniper))
-    application.add_handler(CommandHandler("compare", compare))
-    application.add_handler(CommandHandler("terms", terms_command))
-    application.add_handler(CommandHandler("accept", accept_terms))
-    application.add_handler(CommandHandler("force_premium", force_premium))
-    
-    # Callbacks
-    application.add_handler(CallbackQueryHandler(button_handler))
-    
-    # Mensajes de texto
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
-    
-    logger.info("🤖 Bot is running...")
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
+    # Ejecutar todo en un solo event loop
+    try:
+        asyncio.run(start_services())
+    except KeyboardInterrupt:
+        logger.info("🛑 Bot stopped by user")
+    except Exception as e:
+        logger.error(f"❌ Fatal error: {e}")
+        raise
