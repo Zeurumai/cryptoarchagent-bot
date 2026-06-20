@@ -67,7 +67,9 @@ ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
 
 if not DASHBOARD_API_KEY or not ADMIN_SECRET:
-    raise ValueError("❌ Missing security variables in Railway")
+    raise ValueError("❌ Missing DASHBOARD_API_KEY or ADMIN_SECRET in Railway")
+if not MP_WEBHOOK_SECRET:
+    logger.warning("⚠️ MP_WEBHOOK_SECRET not set. MercadoPago webhook disabled.")
 
 logger.info("✅ Security variables loaded")
 logger.info(f"🧠 Advanced AI Predictor: {'ENABLED' if AI_MODEL_ENABLED else 'DISABLED'}")
@@ -587,8 +589,7 @@ def save_user_data():
 
 load_user_data()
 
-# ==================== SUPABASE ====================
-# ==================== SUPABASE ====================
+# ==================== SUPABASE (INICIALIZACIÓN SEGURA) ====================
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
@@ -602,6 +603,7 @@ if SUPABASE_URL and SUPABASE_KEY:
         supabase = None
 else:
     logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not configured. Using local files.")
+
 SUBSCRIBERS_FILE = "subscribers.json"
 
 # ==================== NIVELES ====================
@@ -2860,7 +2862,7 @@ async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error saving sniper settings: {e}")
         await update.message.reply_text("❌ Internal error. Try again later.")
 
-# ==================== WEBHOOK + WEB TERMINAL ====================
+# ==================== WEBHOOK + WEB TERMINAL (desactivado MP) ====================
 trade_history = []
 
 def add_trade_to_history(symbol, action, amount, price, pnl=None):
@@ -2888,7 +2890,6 @@ def require_api_key(f):
 
 @webhook_app.route('/webhook', methods=['POST'])
 def webhook():
-    # Webhook desactivado (ya no usamos MercadoPago)
     logger.info("ℹ️ Webhook received but MercadoPago is disabled.")
     return "MP disabled", 200
 
