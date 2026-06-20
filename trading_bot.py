@@ -588,16 +588,20 @@ def save_user_data():
 load_user_data()
 
 # ==================== SUPABASE ====================
+# ==================== SUPABASE ====================
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not configured. Using local files.")
-    supabase = None
+supabase = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info("✅ Connected to Supabase")
+    except Exception as e:
+        logger.warning(f"⚠️ Supabase connection failed: {e}. Using local files.")
+        supabase = None
 else:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    logger.info("✅ Connected to Supabase")
-
+    logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not configured. Using local files.")
 SUBSCRIBERS_FILE = "subscribers.json"
 
 # ==================== NIVELES ====================
