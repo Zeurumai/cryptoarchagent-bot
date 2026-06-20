@@ -594,14 +594,15 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
         logger.info("✅ Connected to Supabase")
     except Exception as e:
+        # Cambiado a WARNING para que no interrumpa el flujo
         logger.warning(f"⚠️ Supabase connection failed: {e}. Using local files.")
         supabase = None
 else:
     logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not set. Using local files.")
-# ==================== NIVELES ====================
+    # ==================== NIVELES ====================
 LEVELS = {
     0: {"name": "Explorer", "emoji": "🧭", "commission": 0.005, "insignia": "🔰", "benefits": "Basic alerts, whales, news, 14-day free trial", "active": False, "beta_access": False, "token_reward": False},
     1: {"name": "Trader", "emoji": "📊", "commission": 0.004, "insignia": "⚡", "benefits": "Explorer + Copy Trading", "active": True, "beta_access": False, "token_reward": False},
