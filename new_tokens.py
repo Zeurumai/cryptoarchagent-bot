@@ -7,6 +7,7 @@ from supabase import create_client, Client
 
 # Importar el modelo de ML
 from ml_model import predict_growth
+from sentiment import analyze_token_sentiment
 
 logger = logging.getLogger(__name__)
 
