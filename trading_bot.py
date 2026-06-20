@@ -827,7 +827,7 @@ Type `/accept` to confirm you have read and agree.
 """
     await update.message.reply_text(text, parse_mode="Markdown")
 
-# ==================== RATE LIMITING (DEFINIDO ANTES DE LOS DECORADORES) ====================
+# ==================== RATE LIMITING ====================
 rate_limit_store = {}
 
 def is_rate_limited(chat_id: int) -> bool:
@@ -939,7 +939,7 @@ def reschedule_reports():
                 schedule.every().day.at(hour).do(send_report, int(chat_id), report_type)
                 logger.info(f"Scheduled {report_type} report at {hour} for chat {chat_id}")
 
-# ==================== FUNCIÓN PARA NUEVOS TOKENS (SCANNER) ====================
+# ==================== FUNCIÓN PARA NUEVOS TOKENS ====================
 def check_new_tokens():
     if os.getenv("NEW_TOKEN_ALERTS", "false").lower() != "true":
         return
@@ -951,12 +951,15 @@ def check_new_tokens():
             for admin_id in ADMIN_IDS:
                 for token in new_tokens:
                     msg = f"🚀 *New Token Detected!*\n\n{format_token_message(token)}"
+                    if token.get("buy_tax") or token.get("sell_tax"):
+                        msg += f"\n   💰 Tax: Buy {token.get('buy_tax', 0)}% / Sell {token.get('sell_tax', 0)}%"
+                    if token.get("holder_count"):
+                        msg += f"\n   👥 Holders: {token.get('holder_count')}"
                     send_telegram(admin_id, msg)
     except Exception as e:
         logger.error(f"Error in check_new_tokens: {e}")
 
 # ==================== HANDLERS DE COMANDOS ====================
-@rate_limited()
 async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     terms = load_terms()
