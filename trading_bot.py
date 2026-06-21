@@ -3087,50 +3087,75 @@ if __name__ == "__main__":
     logger.info("✅ Scheduler thread started.")
 
     import asyncio
-
+    
     async def main():
-        if WS_ENABLED:
-            asyncio.create_task(update_prices_from_websocket())
-            logger.info("🔄 WebSocket price listener started in background.")
-        else:
-            logger.info("ℹ️ WebSocket disabled (WS_ENABLED=false). Using REST.")
+    logger.info("🚀 Starting CryptoArch Agent...")
+    
+    # Eliminar webhook al inicio (para asegurar polling)
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook")
+        logger.info("✅ Webhook eliminado")
+    except Exception as e:
+        logger.warning(f"⚠️ Error al eliminar webhook: {e}")
+    
+    # WebSocket
+    if WS_ENABLED:
+        asyncio.create_task(update_prices_from_websocket())
+        logger.info("🔄 WebSocket started")
+    
+    # Scheduler en hilo separado
+    threading.Thread(target=run_scheduler, daemon=True).start()
+    logger.info("✅ Scheduler started")
+    
+    # Flask (health check)
+    port = int(os.getenv("PORT", 8080))
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False), daemon=True).start()
+    logger.info(f"✅ Health check running on port {port}")
+    
+    # Bot de Telegram
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    # === REGISTRO DE TODOS LOS COMANDOS (los que ya tenías) ===
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("menu", menu_command))
+    application.add_handler(CommandHandler("buy", buy))
+    application.add_handler(CommandHandler("sell", sell))
+    application.add_handler(CommandHandler("whale", whale))
+    application.add_handler(CommandHandler("copy", copy))
+    application.add_handler(CommandHandler("predict", predict_command))
+    application.add_handler(CommandHandler("newtokens", newtokens_command))
+    application.add_handler(CommandHandler("plans", plans_command))
+    application.add_handler(CommandHandler("info", info_command))
+    application.add_handler(CommandHandler("news", news_command))
+    application.add_handler(CommandHandler("id", id_command))
+    application.add_handler(CommandHandler("balance", balance))
+    application.add_handler(CommandHandler("premium", premium))
+    application.add_handler(CommandHandler("activate", activate))
+    application.add_handler(CommandHandler("plan", plan))
+    application.add_handler(CommandHandler("setemail", setemail))
+    application.add_handler(CommandHandler("lang", lang_command))
+    application.add_handler(CommandHandler("rule", rule_command))
+    application.add_handler(CommandHandler("snipe", snipe_command))
+    application.add_handler(CommandHandler("sniper", sniper))
+    application.add_handler(CommandHandler("compare", compare))
+    application.add_handler(CommandHandler("terms", terms_command))
+    application.add_handler(CommandHandler("accept", accept_terms))
+    application.add_handler(CommandHandler("force_premium", force_premium))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
+    
+    # Iniciar bot
+    logger.info("🤖 Starting bot...")
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    
+    logger.info("🚀 Trading bot started successfully")
+    
+    # Mantener el loop vivo con heartbeat
+    while True:
+        await asyncio.sleep(60)
+        logger.debug("Bot heartbeat")
 
-        app = Application.builder().token(TELEGRAM_TOKEN).build()
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("menu", menu_command))
-        app.add_handler(CommandHandler("balance", balance))
-        app.add_handler(CommandHandler("premium", premium))
-        app.add_handler(CommandHandler("plans", plans_command))
-        app.add_handler(CommandHandler("id", id_command))
-        app.add_handler(CommandHandler("whale", whale))
-        app.add_handler(CommandHandler("predict", predict_command))
-        app.add_handler(CommandHandler("newtokens", newtokens_command))
-        app.add_handler(CommandHandler("lang", lang_command))
-        app.add_handler(CommandHandler("terms", terms_command))
-        app.add_handler(CommandHandler("accept", accept_terms))
-        app.add_handler(CommandHandler("info", info_command))
-        app.add_handler(CommandHandler("news", news_command))
-        app.add_handler(CommandHandler("buy", buy))
-        app.add_handler(CommandHandler("sell", sell))
-        app.add_handler(CommandHandler("activate", activate))
-        app.add_handler(CommandHandler("plan", plan))
-        app.add_handler(CommandHandler("setemail", setemail))
-        app.add_handler(CommandHandler("force_premium", force_premium))
-        app.add_handler(CommandHandler("copy", copy))
-        app.add_handler(CommandHandler("rule", rule_command))
-        app.add_handler(CommandHandler("snipe", snipe_command))
-        app.add_handler(CommandHandler("sniper", sniper))
-        app.add_handler(CommandHandler("compare", compare))
-        app.add_handler(CallbackQueryHandler(button_handler))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
-
-        await app.initialize()
-        await app.start()
-        await app.updater.start_polling()
-
-        logger.info("🚀 Trading bot started successfully (Fase 8.5: New Tokens Scanner + AI Advanced + Bilingual)")
-
-        while True:
-            await asyncio.sleep(1)
-
-    asyncio.run(main())
+    
