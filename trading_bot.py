@@ -3063,8 +3063,14 @@ def delete_rule_api():
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
-    # Cargar suscriptores (usa local si Supabase no está disponible)
-    subscribers = load_subscribers()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("🛑 Bot stopped by user")
+    except Exception as e:
+        logger.error(f"❌ Fatal error: {e}")
+        logger.error(traceback.format_exc())
+        raise
     
     # Si Supabase no está conectado, solo mostramos una advertencia, NO detenemos el bot
     if not supabase:
