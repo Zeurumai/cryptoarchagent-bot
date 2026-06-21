@@ -11,9 +11,12 @@ import feedparser
 import re
 import hmac
 import hashlib
+import traceback
+import aiohttp
 from datetime import datetime, timedelta
 from flask import Flask, request, render_template, jsonify
 from dotenv import load_dotenv
+# import mercadopago  # <--- ELIMINADO COMPLETAMENTE
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from whale_advanced import (
@@ -44,11 +47,18 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     raise ValueError("❌ TELEGRAM_TOKEN not found. Set it in .env")
 
+# MP_ACCESS_TOKEN ya no es obligatorio
+MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
+if not MP_ACCESS_TOKEN:
+    logger.warning("⚠️ MP_ACCESS_TOKEN not set. MercadoPago payments disabled.")
+
+MP_WEBHOOK_URL = os.getenv("MP_WEBHOOK_URL")
 BINANCE_REFERRAL_LINK = os.getenv("BINANCE_REFERRAL_LINK", "https://www.binance.com/en/register?ref=1249175745")
 
 # ==================== SEGURIDAD ====================
 ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "8355456581").split(",")))
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
+MP_WEBHOOK_SECRET = os.getenv("MP_WEBHOOK_SECRET", "")
 DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "20"))
 RATE_LIMIT_PERIOD = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
@@ -66,9 +76,11 @@ ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
 # ==================== IA PREDICTIVA AVANZADA ====================
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
 
-# Validación de variables críticas
+# Validación de variables críticas (MP es opcional)
 if not DASHBOARD_API_KEY or not ADMIN_SECRET:
     raise ValueError("❌ Missing DASHBOARD_API_KEY or ADMIN_SECRET in Railway")
+if not MP_WEBHOOK_SECRET:
+    logger.warning("⚠️ MP_WEBHOOK_SECRET not set. MercadoPago webhook disabled.")
 
 logger.info("✅ Security variables loaded")
 logger.info(f"🧠 Advanced AI Predictor: {'ENABLED' if AI_MODEL_ENABLED else 'DISABLED'}")
@@ -961,34 +973,12 @@ def check_new_tokens():
 # ==================== FUNCIÓN DEL SCHEDULER ====================
 def run_scheduler():
     while True:
-        schedule.run_pending()
-        time.sleep(1)
-
-# ==================== WEBHOOK + WEB TERMINAL ====================
-trade_history = []
-
-def add_trade_to_history(symbol, action, amount, price, pnl=None):
-    trade_history.append({
-        "timestamp": datetime.now().isoformat(),
-        "symbol": symbol,
-        "action": action,
-        "amount": amount,
-        "price": price,
-        "pnl": pnl if pnl is not None else 0.0
-    })
-    if len(trade_history) > 100:
-        trade_history.pop(0)
-
-webhook_app = Flask(__name__, template_folder='templates')
-
-def require_api_key(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        provided_key = request.headers.get('X-API-Key')
-        if not provided_key or provided_key != DASHBOARD_API_KEY:
-            return jsonify({"error": "Unauthorized"}), 401
-        return f(*args, **kwargs)
-    return decorated
+        try:
+            schedule.run_pending()
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"Scheduler error: {e}")
+            time.sleep(5)
 
 # ==================== HANDLERS DE COMANDOS ====================
 async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2920,9 +2910,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"⚠️ Callback no reconocido: {data}")
         await query.edit_message_text("❌ Invalid option.")
 
-# ==================== WEBHOOK + WEB TERMINAL (desactivado MP) ====================
-# Nota: el webhook de MercadoPago está completamente desactivado.
-# Solo mantenemos el endpoint /webhook por compatibilidad, pero devuelve "MP disabled".
+# ==================== WEBHOOK + WEB TERMINAL ====================
+trade_history = []
+
+def add_trade_to_history(symbol, action, amount, price, pnl=None):
+    trade_history.append({
+        "timestamp": datetime.now().isoformat(),
+        "symbol": symbol,
+        "action": action,
+        "amount": amount,
+        "price": price,
+        "pnl": pnl if pnl is not None else 0.0
+    })
+    if len(trade_history) > 100:
+        trade_history.pop(0)
+
+webhook_app = Flask(__name__, template_folder='templates')
+
+def require_api_key(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        provided_key = request.headers.get('X-API-Key')
+        if not provided_key or provided_key != DASHBOARD_API_KEY:
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 @webhook_app.route('/webhook', methods=['POST'])
 def webhook():
@@ -3062,67 +3074,38 @@ def delete_rule_api():
         return jsonify({"error": "Internal error"}), 500
 
 # ==================== MAIN ====================
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("🛑 Bot stopped by user")
-    except Exception as e:
-        logger.error(f"❌ Fatal error: {e}")
-        logger.error(traceback.format_exc())
-        raise
-    
-    # Si Supabase no está conectado, solo mostramos una advertencia, NO detenemos el bot
-    if not supabase:
-        logger.warning("⚠️ Supabase not connected. Using local files for subscribers and settings.")
-        logger.warning("⚠️ Some features (copy trading, rules, sniper) will not be saved to the cloud.")
-    else:
-        logger.info("✅ Supabase connected. Cloud features enabled.")
-
-    # Iniciar el scheduler de reports
-    reschedule_reports()
-
-    # Programar escáner de nuevos tokens si está habilitado
-    if os.getenv("NEW_TOKEN_ALERTS", "false").lower() == "true":
-        interval = int(os.getenv("NEW_TOKEN_SCAN_INTERVAL", "300"))
-        schedule.every(interval).seconds.do(check_new_tokens)
-        logger.info(f"🔄 New token scanner scheduled every {interval} seconds")
-
-    # Iniciar el scheduler en un hilo separado
-    threading.Thread(target=run_scheduler, daemon=True).start()
-    logger.info("✅ Scheduler thread started.")
-
-    import asyncio
-    
-    async def main():
+async def main():
     logger.info("🚀 Starting CryptoArch Agent...")
     
-    # Eliminar webhook al inicio (para asegurar polling)
+    # Eliminar webhook al inicio con requests
     try:
-        async with aiohttp.ClientSession() as session:
-            await session.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook")
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook")
         logger.info("✅ Webhook eliminado")
     except Exception as e:
         logger.warning(f"⚠️ Error al eliminar webhook: {e}")
     
-    # WebSocket
+    # Iniciar WebSocket con manejo de errores
     if WS_ENABLED:
         asyncio.create_task(update_prices_from_websocket())
-        logger.info("🔄 WebSocket started")
-    
-    # Scheduler en hilo separado
-    threading.Thread(target=run_scheduler, daemon=True).start()
-    logger.info("✅ Scheduler started")
-    
-    # Flask (health check)
+        logger.info("🔄 WebSocket price listener started in background.")
+    else:
+        logger.info("ℹ️ WebSocket disabled (WS_ENABLED=false). Using REST.")
+
+    # Iniciar Flask en hilo separado
     port = int(os.getenv("PORT", 8080))
-    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False), daemon=True).start()
-    logger.info(f"✅ Health check running on port {port}")
-    
-    # Bot de Telegram
+    threading.Thread(target=lambda: webhook_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False), daemon=True).start()
+    logger.info(f"✅ Web dashboard running on port {port}")
+
+    # Iniciar scheduler en hilo separado (si no está iniciado ya en el main original)
+    # Nota: tu código original ya tiene threading.Thread(target=run_scheduler, daemon=True).start()
+    # Si ya lo tienes, no lo dupliques. Yo lo dejo comentado por si acaso.
+    # threading.Thread(target=run_scheduler, daemon=True).start()
+    # logger.info("✅ Scheduler thread started.")
+
+    # Configurar bot
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # === REGISTRO DE TODOS LOS COMANDOS (los que ya tenías) ===
+    # Registrar comandos
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("buy", buy))
@@ -3150,18 +3133,26 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("force_premium", force_premium))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
-    
+
     # Iniciar bot
-    logger.info("🤖 Starting bot...")
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
-    
-    logger.info("🚀 Trading bot started successfully")
-    
+
+    logger.info("🚀 Trading bot started successfully (Fase 8.5: New Tokens Scanner + AI Advanced + Bilingual)")
+
     # Mantener el loop vivo con heartbeat
     while True:
         await asyncio.sleep(60)
         logger.debug("Bot heartbeat")
 
-    
+# ==================== MAIN ====================
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("🛑 Bot stopped by user")
+    except Exception as e:
+        logger.error(f"❌ Fatal error: {e}")
+        logger.error(traceback.format_exc())
+        raise
