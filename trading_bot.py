@@ -2161,9 +2161,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
     chat_id = update.effective_chat.id
+    
+    # LOG PARA DEPURACIÓN
+    logger.info(f"🔘 Callback recibido: {data} de chat {chat_id}")
+    
     if is_rate_limited(chat_id):
         await query.edit_message_text("⏳ Too many requests. Please wait.")
         return
+    
     if data == "status":
         await show_status(query)
     elif data == "alerts_list":
@@ -2341,32 +2346,56 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "menu":
         await start(update, context)
     else:
+        logger.warning(f"⚠️ Callback no reconocido: {data}")
         await query.edit_message_text("❌ Invalid option.")
 
 async def show_status(query):
-    prices = get_all_prices()
-    if not prices:
-        await query.edit_message_text("⚠️ Could not fetch data. Try again later.")
-        return
-    message = "📊 *LIVE MARKET STATUS* (WebSocket)\n\n"
-    for coin_id, symbol, name in COINS:
-        if coin_id not in prices:
-            continue
-        data = prices[coin_id]
-        price = data.get('usd', 0)
-        change = data.get('usd_24h_change', 0)
-        if price == 0:
-            continue
-        trend = "📈" if change > 0 else "📉" if change < 0 else "➡️"
-        message += f"• *{symbol}*: ${price:,.0f} | {change:+.1f}% {trend}\n"
+    import traceback
+    logger.info("📊 [show_status] INICIANDO")
     try:
-        fg = requests.get('https://api.alternative.me/fng/').json()
-        value = fg['data'][0]['value']
-        classification = fg['data'][0]['value_classification']
-        message += f"\n😨 *Fear & Greed:* {value}/100 ({classification})"
-    except:
-        pass
-    await query.edit_message_text(message, parse_mode="Markdown")
+        logger.info("📊 [show_status] Obteniendo precios...")
+        prices = get_all_prices()
+        logger.info(f"📊 [show_status] Precios obtenidos: {prices}")
+        
+        if not prices:
+            logger.warning("📊 [show_status] No se obtuvieron precios")
+            await query.edit_message_text("⚠️ Could not fetch data. Try again later.")
+            return
+        
+        message = "📊 *LIVE MARKET STATUS* (WebSocket)\n\n"
+        logger.info("📊 [show_status] Construyendo mensaje...")
+        
+        for coin_id, symbol, name in COINS:
+            if coin_id not in prices:
+                logger.info(f"📊 [show_status] {coin_id} no en precios")
+                continue
+            data = prices[coin_id]
+            price = data.get('usd', 0)
+            change = data.get('usd_24h_change', 0)
+            if price == 0:
+                continue
+            trend = "📈" if change > 0 else "📉" if change < 0 else "➡️"
+            message += f"• *{symbol}*: ${price:,.0f} | {change:+.1f}% {trend}\n"
+        
+        # Fear & Greed
+        try:
+            logger.info("📊 [show_status] Obteniendo Fear & Greed...")
+            fg = requests.get('https://api.alternative.me/fng/').json()
+            value = fg['data'][0]['value']
+            classification = fg['data'][0]['value_classification']
+            message += f"\n😨 *Fear & Greed:* {value}/100 ({classification})"
+            logger.info(f"📊 [show_status] Fear & Greed: {value}/100")
+        except Exception as e:
+            logger.error(f"📊 [show_status] Error en Fear & Greed: {e}")
+        
+        logger.info("📊 [show_status] Enviando mensaje final...")
+        await query.edit_message_text(message, parse_mode="Markdown")
+        logger.info("📊 [show_status] FINALIZADO CORRECTAMENTE")
+        
+    except Exception as e:
+        logger.error(f"📊 [show_status] ERROR: {e}")
+        logger.error(traceback.format_exc())
+        await query.edit_message_text(f"❌ Error interno: {e}")
 
 async def show_alerts(query, chat_id):
     data = USER_DATA.get(str(chat_id), {})
