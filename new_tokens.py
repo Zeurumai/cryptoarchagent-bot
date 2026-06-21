@@ -2,7 +2,16 @@ import os
 import json
 import logging
 from datetime import datetime
-from supabase import create_client, Client
+
+# ==================== IMPORTACIÓN SEGURA DE SUPABASE ====================
+try:
+    from supabase import create_client, Client
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    create_client = None
+    Client = None
+    logging.getLogger(__name__).warning("⚠️ Supabase library not installed. Using local storage only.")
 
 logger = logging.getLogger(__name__)
 
@@ -10,9 +19,9 @@ logger = logging.getLogger(__name__)
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
-# ==================== INICIALIZACIÓN SEGURA DE SUPABASE ====================
+# ==================== INICIALIZACIÓN DE SUPABASE (SOLO SI ESTÁ DISPONIBLE) ====================
 supabase = None
-if SUPABASE_URL and SUPABASE_KEY:
+if SUPABASE_AVAILABLE and SUPABASE_URL and SUPABASE_KEY:
     try:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         logger.info("✅ Supabase client initialized for new_tokens")
@@ -20,7 +29,10 @@ if SUPABASE_URL and SUPABASE_KEY:
         logger.warning(f"⚠️ Supabase init failed: {e}. Using local storage.")
         supabase = None
 else:
-    logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not set. Using local storage.")
+    if not SUPABASE_AVAILABLE:
+        logger.warning("⚠️ Supabase library not installed. Using local storage.")
+    elif not SUPABASE_URL or not SUPABASE_KEY:
+        logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not set. Using local storage.")
 
 # ==================== ALMACENAMIENTO LOCAL (fallback) ====================
 LOCAL_TOKENS_FILE = "new_tokens_cache.json"
@@ -41,9 +53,9 @@ def _save_local_tokens(tokens):
 def scan_new_pools(limit=10, min_liquidity=5000):
     """
     Escanea nuevos pools en DEX (simulado).
-    En producción, conectar a DexScreener, Birdeye, etc.
+    En producción, reemplazar con llamada a DexScreener, Birdeye, etc.
     """
-    # Datos de ejemplo (reemplazar con API real)
+    # Datos de ejemplo (puedes reemplazar con API real)
     sample_tokens = [
         {
             "address": "0x123abc...",
@@ -80,13 +92,12 @@ def get_recent_tokens(limit=10):
     """
     Obtiene tokens recientes desde Supabase si está disponible, sino desde local.
     """
-    if supabase:
+    if supabase is not None:
         try:
             response = supabase.table("new_tokens").select("*").order("created_at", desc=True).limit(limit).execute()
             return response.data if response.data else []
         except Exception as e:
             logger.error(f"Error fetching tokens from Supabase: {e}")
-            # Fallback a local
             return _load_local_tokens()[:limit]
     else:
         return _load_local_tokens()[:limit]
@@ -97,7 +108,7 @@ def save_new_tokens(tokens):
     """
     if not tokens:
         return
-    if supabase:
+    if supabase is not None:
         try:
             for token in tokens:
                 # Evitar duplicados por address
@@ -148,7 +159,7 @@ def format_token_message(token):
     msg += f"   🆔 `{address[:8]}...{address[-6:]}`"
     return msg
 
-# ==================== PRUEBA RÁPIDA (opcional) ====================
+# ==================== PRUEBA RÁPIDA ====================
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     tokens = scan_new_pools()
