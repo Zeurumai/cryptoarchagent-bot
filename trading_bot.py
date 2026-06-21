@@ -3026,14 +3026,22 @@ def delete_rule_api():
         return jsonify({"error": "Internal error"}), 500
 
 # ==================== MAIN ====================
+# ==================== MAIN ====================
 if __name__ == "__main__":
+    # Cargar suscriptores (usa local si Supabase no está disponible)
     subscribers = load_subscribers()
+    
+    # Si Supabase no está conectado, solo mostramos una advertencia, NO detenemos el bot
     if not supabase:
-        logger.critical("❌ Supabase not connected. Bot will not start for security.")
-        exit(1)
+        logger.warning("⚠️ Supabase not connected. Using local files for subscribers and settings.")
+        logger.warning("⚠️ Some features (copy trading, rules, sniper) will not be saved to the cloud.")
+    else:
+        logger.info("✅ Supabase connected. Cloud features enabled.")
 
+    # Iniciar el scheduler de reports
     reschedule_reports()
 
+    # Programar escáner de nuevos tokens si está habilitado
     if os.getenv("NEW_TOKEN_ALERTS", "false").lower() == "true":
         interval = int(os.getenv("NEW_TOKEN_SCAN_INTERVAL", "300"))
         schedule.every(interval).seconds.do(check_new_tokens)
