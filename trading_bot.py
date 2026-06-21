@@ -12,11 +12,9 @@ import re
 import hmac
 import hashlib
 import traceback
-import aiohttp
 from datetime import datetime, timedelta
 from flask import Flask, request, render_template, jsonify
 from dotenv import load_dotenv
-# import mercadopago  # <--- ELIMINADO COMPLETAMENTE
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from whale_advanced import (
@@ -38,27 +36,20 @@ from new_tokens import scan_new_pools, get_recent_tokens, format_token_message
 
 load_dotenv()
 
-# ==================== LOGGING (DEFINIDO PRIMERO) ====================
+# ==================== LOGGING ====================
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==================== CONFIGURACIÓN ====================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
-    raise ValueError("❌ TELEGRAM_TOKEN not found. Set it in .env")
+    raise ValueError("❌ TELEGRAM_TOKEN not found")
 
-# MP_ACCESS_TOKEN ya no es obligatorio
-MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
-if not MP_ACCESS_TOKEN:
-    logger.warning("⚠️ MP_ACCESS_TOKEN not set. MercadoPago payments disabled.")
-
-MP_WEBHOOK_URL = os.getenv("MP_WEBHOOK_URL")
 BINANCE_REFERRAL_LINK = os.getenv("BINANCE_REFERRAL_LINK", "https://www.binance.com/en/register?ref=1249175745")
 
 # ==================== SEGURIDAD ====================
 ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "8355456581").split(",")))
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
-MP_WEBHOOK_SECRET = os.getenv("MP_WEBHOOK_SECRET", "")
 DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "20"))
 RATE_LIMIT_PERIOD = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
@@ -68,19 +59,16 @@ WS_ENABLED = os.getenv("WS_ENABLED", "true").lower() == "true"
 WS_EXCHANGE = os.getenv("WS_EXCHANGE", "kraken").lower()
 PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))
 
-# ==================== SEGURIDAD ANTI-MEV / ANTI-RUG ====================
+# ==================== ANTI-MEV / ANTI-RUG ====================
 GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")
 ANTI_MEV_ENABLED = os.getenv("ANTI_MEV_ENABLED", "true").lower() == "true"
-ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
+ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true")
 
-# ==================== IA PREDICTIVA AVANZADA ====================
+# ==================== IA PREDICTIVA ====================
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
 
-# Validación de variables críticas (MP es opcional)
 if not DASHBOARD_API_KEY or not ADMIN_SECRET:
     raise ValueError("❌ Missing DASHBOARD_API_KEY or ADMIN_SECRET in Railway")
-if not MP_WEBHOOK_SECRET:
-    logger.warning("⚠️ MP_WEBHOOK_SECRET not set. MercadoPago webhook disabled.")
 
 logger.info("✅ Security variables loaded")
 logger.info(f"🧠 Advanced AI Predictor: {'ENABLED' if AI_MODEL_ENABLED else 'DISABLED'}")
@@ -174,14 +162,13 @@ def fetch_prices_rest():
         logger.error(f"Error en fallback REST: {e}")
     return {}
 
-# ==================== WEB SOCKET (KRAKEN) ====================
+# ==================== WEB SOCKET ====================
 ws_connection = None
 ws_active = True
 
 async def update_prices_from_websocket():
     global PRICE_CACHE, ws_connection, ws_active, WS_ENABLED
     if not WS_ENABLED:
-        logger.info("WebSocket disabled by configuration.")
         return
 
     exchange = WS_EXCHANGE
@@ -202,7 +189,7 @@ async def update_prices_from_websocket():
                 async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as websocket:
                     ws_connection = websocket
                     await websocket.send(json.dumps(subscription_msg))
-                    logger.info("✅ Kraken WebSocket connected. Updating in real-time.")
+                    logger.info("✅ Kraken WebSocket connected")
                     
                     async for message in websocket:
                         try:
@@ -243,7 +230,7 @@ async def update_prices_from_websocket():
                 logger.info(f"🔌 Connecting to Binance WebSocket...")
                 async with websockets.connect(stream_url, ping_interval=20, ping_timeout=10) as websocket:
                     ws_connection = websocket
-                    logger.info("✅ Binance WebSocket connected.")
+                    logger.info("✅ Binance WebSocket connected")
                     
                     async for message in websocket:
                         try:
@@ -1079,10 +1066,23 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
+
+    # Verificar si las claves de Binance están configuradas
+    if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
+        await update.message.reply_text(
+            "⚠️ *Binance API keys not configured.*\n\n"
+            "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.\n"
+            "For testnet, also set BINANCE_TESTNET=true\n\n"
+            "🔧 *Trading will be enabled once keys are set.*",
+            parse_mode="Markdown"
+        )
+        return
+
     args = context.args
     if len(args) != 2:
         await update.message.reply_text("⚠️ Usage: `/buy [amount] [symbol]`\nExample: `/buy 0.001 BTCUSDT`", parse_mode="Markdown")
         return
+
     try:
         amount = float(args[0])
         symbol = args[1].upper()
@@ -1091,29 +1091,32 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("❌ Invalid amount. Example: 0.001")
         return
+
     try:
         engine = TradingEngine(testnet=True)
         usdt_balance = engine.get_balance("USDT")
         if usdt_balance is None:
             await update.message.reply_text("❌ Could not connect to Binance Testnet. Please check your API keys.")
             return
+
         if usdt_balance < 0.01:
             await update.message.reply_text(
                 "⚠️ Your Testnet balance is zero. You need to fund your testnet wallet first.\n"
                 "Go to https://testnet.binance.vision/ to get testnet funds."
             )
             return
+
         price = engine.get_price(symbol)
         cost = amount * price
         if cost > usdt_balance:
             await update.message.reply_text(f"❌ Insufficient testnet balance. Need ~${cost:.2f} USDT. You have ${usdt_balance:.2f} USDT.")
             return
-        
+
         commission = get_user_commission(chat_id)
         token_reward = get_token_reward(chat_id)
         fee = cost * commission if commission else 0
         token_amount = fee * token_reward if token_reward > 0 else 0
-        
+
         security_msg = ""
         if ANTI_RUG_ENABLED and GOPLUS_API_KEY:
             contract = "0x0000000000000000000000000000000000000000"
@@ -1133,14 +1136,14 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount, "risk_accepted": False}
                 return
-        
+
         pred_msg = ""
         if AI_MODEL_ENABLED:
             alert = {"symbol": symbol, "value": cost, "transaction_type": "buy"}
             pred = predict_with_ai_advanced(alert, [])
             confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
             pred_msg = f"\n🧠 *AI Prediction:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confidence)"
-        
+
         await update.message.reply_text(
             f"🟢 *Confirm buy*\n{amount} {symbol} ≈ ${cost:.2f} USD\n"
             f"Commission: {commission*100:.1f}%\n"
@@ -1151,9 +1154,16 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         context.user_data["pending_order"] = {"type": "buy", "symbol": symbol, "amount": amount, "risk_accepted": True}
+
     except Exception as e:
         logger.error(f"Error in buy: {e}")
-        await update.message.reply_text(f"❌ Error: {str(e)}. Check your Binance Testnet configuration.")
+        logger.error(traceback.format_exc())
+        await update.message.reply_text(
+            f"❌ *Error executing buy:*\n\n"
+            f"`{str(e)}`\n\n"
+            "Check the logs for more details.",
+            parse_mode="Markdown"
+        )
 
 @rate_limited()
 async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1169,10 +1179,22 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Verificar si las claves de Binance están configuradas
+    if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
+        await update.message.reply_text(
+            "⚠️ *Binance API keys not configured.*\n\n"
+            "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.\n"
+            "For testnet, also set BINANCE_TESTNET=true\n\n"
+            "🔧 *Trading will be enabled once keys are set.*",
+            parse_mode="Markdown"
+        )
+        return
+
     args = context.args
     if len(args) != 2:
         await update.message.reply_text("⚠️ Usage: `/sell [amount] [symbol]`\nExample: `/sell 0.001 BTCUSDT`", parse_mode="Markdown")
         return
+
     try:
         amount = float(args[0])
         symbol = args[1].upper()
@@ -1181,7 +1203,9 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("❌ Invalid amount.")
         return
+
     try:
+        # Panic Shield
         try:
             fg_data = requests.get('https://api.alternative.me/fng/?limit=1').json()
             fear_value = int(fg_data['data'][0]['value'])
@@ -1206,16 +1230,18 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if balance_asset is None:
             await update.message.reply_text("❌ Could not connect to Binance Testnet. Please check your API keys.")
             return
+
         if balance_asset < amount:
             await update.message.reply_text(f"❌ Insufficient {base_asset} testnet balance. You have {balance_asset:.8f}. Need {amount}.")
             return
+
         price = engine.get_price(symbol)
         value = amount * price
         commission = get_user_commission(chat_id)
         token_reward = get_token_reward(chat_id)
         fee = value * commission if commission else 0
         token_amount = fee * token_reward if token_reward > 0 else 0
-        
+
         security_msg = ""
         if ANTI_RUG_ENABLED and GOPLUS_API_KEY:
             contract = "0x0000000000000000000000000000000000000000"
@@ -1245,14 +1271,14 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount, "risk_accepted": False}
                 return
-        
+
         pred_msg = ""
         if AI_MODEL_ENABLED:
             alert = {"symbol": symbol, "value": value, "transaction_type": "sell"}
             pred = predict_with_ai_advanced(alert, [])
             confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
             pred_msg = f"\n🧠 *AI Prediction:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confidence)"
-        
+
         await update.message.reply_text(
             f"🔴 *Confirm sell*\n{amount} {symbol} ≈ ${value:.2f} USD\n"
             f"Commission: {commission*100:.1f}%\n"
@@ -1263,106 +1289,69 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         context.user_data["pending_order"] = {"type": "sell", "symbol": symbol, "amount": amount, "risk_accepted": True}
+
     except Exception as e:
         logger.error(f"Error in sell: {e}")
-        await update.message.reply_text(f"❌ Error: {str(e)}. Check your Binance Testnet configuration.")
+        logger.error(traceback.format_exc())
+        await update.message.reply_text(
+            f"❌ *Error executing sell:*\n\n"
+            f"`{str(e)}`\n\n"
+            "Check the logs for more details.",
+            parse_mode="Markdown"
+        )
 
 @rate_limited()
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
-    btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
-    eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
-    sol_alerts = await asyncio.to_thread(obtener_alertas_solana, 10000, 3)
-    matic_alerts = await asyncio.to_thread(obtener_alertas_polygon, 5000, 3)
-    arb_alerts = await asyncio.to_thread(obtener_alertas_arbitrum, 5000, 3)
+    try:
+        btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
+        eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
+        sol_alerts = await asyncio.to_thread(obtener_alertas_solana, 10000, 3)
+        matic_alerts = await asyncio.to_thread(obtener_alertas_polygon, 5000, 3)
+        arb_alerts = await asyncio.to_thread(obtener_alertas_arbitrum, 5000, 3)
+        all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
 
-    output = "📊 *RECENT WHALE MOVEMENTS*\n"
-    output += "_The following data is informational only. Not investment advice._\n\n"
+        if not all_alerts:
+            await update.message.reply_text("🐋 No significant whale movements detected in the last hour.")
+            return
 
-    all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
-    context.user_data["last_whale_alerts"] = all_alerts
-
-    if not all_alerts:
-        output += "🐋 *No significant whale movements detected in the last hour.*\n"
-        output += "Whales are waiting for the right moment. Check again later!\n\n"
-    else:
-        def format_alert(alert, idx):
+        context.user_data["last_whale_alerts"] = all_alerts
+        output = "📊 *RECENT WHALE MOVEMENTS*\n\n"
+        for alert in all_alerts[:5]:
             emoji, desc, sentiment, value = analizar_alerta(alert)
-            text = f"{emoji} `{desc}`\n"
-            text += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
+            output += f"{emoji} {desc}\n"
+            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
             ia_analysis = analizar_con_ia(alert)
             if ia_analysis:
-                text += f"   🧠 *AI:* {ia_analysis}\n"
-            if AI_MODEL_ENABLED:
-                pred = predict_with_ai_advanced(alert, all_alerts)
-                confidence_emoji = "🟢" if pred['confidence'] > 70 else "🟡" if pred['confidence'] > 50 else "🔴"
-                text += f"   📡 *Prediction:* {pred['emoji']} {pred['prediction'].capitalize()} ({confidence_emoji} {pred['confidence']:.1f}% confidence)\n"
-            radar = predecir_movimiento_ballena(alert)
-            text += f"   📡 *Radar:* {radar['emoji']} {radar['prediction']} ({radar['confidence']}% confidence)\n"
-            context.user_data[f"whale_alert_{idx}"] = alert
-            text += f"   🆔 `whale_{idx}`\n"
-            return text
-
-        if btc_alerts:
-            output += "₿ *Bitcoin (BTC)*\n"
-            for idx, alert in enumerate(btc_alerts):
-                output += format_alert(alert, idx) + "\n"
-        else:
-            output += "₿ *Bitcoin (BTC)*\nNo significant movements recently.\n\n"
-
-        if eth_alerts:
-            output += "⟠ *Ethereum (ETH)*\n"
-            for idx, alert in enumerate(eth_alerts, start=len(btc_alerts)):
-                output += format_alert(alert, idx) + "\n"
-        else:
-            output += "⟠ *Ethereum (ETH)*\nNo significant movements recently.\n\n"
-
-        if sol_alerts:
-            output += "◎ *Solana (SOL)*\n"
-            for idx, alert in enumerate(sol_alerts, start=len(btc_alerts) + len(eth_alerts)):
-                output += format_alert(alert, idx) + "\n"
-        else:
-            output += "◎ *Solana (SOL)*\nNo significant movements recently.\n\n"
-
-        if matic_alerts:
-            output += "🟣 *Polygon (MATIC)*\n"
-            for idx, alert in enumerate(matic_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts)):
-                output += format_alert(alert, idx) + "\n"
-        else:
-            output += "🟣 *Polygon (MATIC)*\nNo significant movements recently.\n\n"
-
-        if arb_alerts:
-            output += "🔵 *Arbitrum (ARB)*\n"
-            for idx, alert in enumerate(arb_alerts, start=len(btc_alerts) + len(eth_alerts) + len(sol_alerts) + len(matic_alerts)):
-                output += format_alert(alert, idx) + "\n"
-        else:
-            output += "🔵 *Arbitrum (ARB)*\nNo significant movements recently.\n\n"
-
-    fg = get_fear_greed_index()
-    output += f"\n📉 *Fear & Greed:* {fg['value']}/100 ({fg['classification']})"
-    output += "\n\n💡 *Note:* Accumulation/distribution analyses are automatic."
-
-    if all_alerts:
-        keyboard = [
-            [InlineKeyboardButton("🐋 Copy this whale", callback_data="copy_whale")],
-            [InlineKeyboardButton("⚔️ Why we're better", callback_data="compare")],
-            [InlineKeyboardButton("🧠 AI Prediction", callback_data="predict")]
-        ]
-        await update.message.reply_text(output, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    else:
+                output += f"   🧠 *AI:* {ia_analysis}\n"
+        fg = get_fear_greed_index()
+        output += f"\n📉 *Fear & Greed:* {fg['value']}/100 ({fg['classification']})"
         await update.message.reply_text(output, parse_mode="Markdown")
 
-    chat_id_str = str(update.effective_chat.id)
-    await evaluate_rules(chat_id_str, all_alerts, context)
-    await execute_sniper(chat_id_str, all_alerts, context)
+    except Exception as e:
+        logger.error(f"Error in whale: {e}")
+        await update.message.reply_text(
+            "⚠️ *Error fetching whale data.*\n\n"
+            "Please try again later.\n"
+            f"Error: {str(e)}",
+            parse_mode="Markdown"
+        )
 
 @rate_limited()
 async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
+
     if not supabase:
-        await update.message.reply_text("❌ Database not available.")
+        await update.message.reply_text(
+            "⚠️ *Copy Trading not available*\n\n"
+            "This feature requires Supabase to be connected.\n"
+            "Please configure SUPABASE_URL and SUPABASE_KEY in Railway.\n\n"
+            "🔧 *Local storage fallback is in development.*",
+            parse_mode="Markdown"
+        )
         return
+
     if not args:
         try:
             settings = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
@@ -1381,7 +1370,6 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text(
                     "🐋 *Copy Trading not configured*\n\n"
-                    "This feature allows you to automatically copy whale trades.\n"
                     "To set it up, use: `/copy [amount] [slippage] [mode] [on/off]`\n"
                     "Example: `/copy 20 1.5 follow on`\n\n"
                     "Modes:\n"
@@ -1393,6 +1381,7 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error loading copy settings: {e}")
             await update.message.reply_text("❌ Internal error. Try again later.")
         return
+
     try:
         if len(args) < 4:
             await update.message.reply_text("❌ Usage: `/copy [amount] [slippage] [mode] [on/off]`")
@@ -1476,35 +1465,50 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
-    alert = None
-    if context.user_data.get("last_whale_alerts"):
+
+    if not context.user_data.get("last_whale_alerts"):
+        await update.message.reply_text(
+            "🧠 *AI Prediction*\n\n"
+            "No recent whale data available.\n"
+            "Run `/whale` first to fetch whale movements.\n\n"
+            "⚠️ AI predictions are for informational purposes only.\n"
+            "Not financial advice.",
+            parse_mode="Markdown"
+        )
+        return
+
+    try:
         alert = context.user_data["last_whale_alerts"][0]
-    if not alert:
-        alert = {"symbol": "BTC", "value": 150000, "transaction_type": "buy", "description": "Whale bought BTC"}
-        all_alerts = [alert]
-    else:
         all_alerts = context.user_data.get("last_whale_alerts", [alert])
-    prediction = predict_with_ai_advanced(alert, all_alerts)
-    message = (
-        f"🧠 *Advanced AI Prediction*\n\n"
-        f"{prediction['emoji']} *Direction:* {prediction['prediction'].capitalize()}\n"
-        f"📊 *Confidence:* {prediction['confidence']:.1f}%\n"
-        f"📝 *Details:* {prediction['details']}\n\n"
-        f"📊 *Factors analyzed:*\n"
-    )
-    for factor, value in prediction.get("factors", {}).items():
-        message += f"   • {factor.replace('_', ' ').title()}: {value}\n"
-    fg = get_fear_greed_index()
-    message += f"\n📉 *Fear & Greed:* {fg['value']}/100 ({fg['classification']})"
-    if prediction['confidence'] > 70:
-        message += "\n\n✅ *Strong signal* - High probability of success."
-    elif prediction['confidence'] > 50:
-        message += "\n\n⚠️ *Moderate signal* - Consider other factors."
-    else:
-        message += "\n\n🔴 *Weak signal* - Low reliability."
-    message += "\n\n_Based on recent whale activity and multi-factor analysis._\n"
-    message += "⚠️ _Not financial advice._"
-    await update.message.reply_text(message, parse_mode="Markdown")
+        prediction = predict_with_ai_advanced(alert, all_alerts)
+        message = (
+            f"🧠 *Advanced AI Prediction*\n\n"
+            f"{prediction['emoji']} *Direction:* {prediction['prediction'].capitalize()}\n"
+            f"📊 *Confidence:* {prediction['confidence']:.1f}%\n"
+            f"📝 *Details:* {prediction['details']}\n\n"
+            f"📊 *Factors analyzed:*\n"
+        )
+        for factor, value in prediction.get("factors", {}).items():
+            message += f"   • {factor.replace('_', ' ').title()}: {value}\n"
+        fg = get_fear_greed_index()
+        message += f"\n📉 *Fear & Greed:* {fg['value']}/100 ({fg['classification']})"
+        if prediction['confidence'] > 70:
+            message += "\n\n✅ *Strong signal* - High probability of success."
+        elif prediction['confidence'] > 50:
+            message += "\n\n⚠️ *Moderate signal* - Consider other factors."
+        else:
+            message += "\n\n🔴 *Weak signal* - Low reliability."
+        message += "\n\n_Based on recent whale activity and multi-factor analysis._\n"
+        message += "⚠️ _Not financial advice._"
+        await update.message.reply_text(message, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error in predict: {e}")
+        await update.message.reply_text(
+            "⚠️ *AI Prediction temporarily unavailable*\n\n"
+            "Please try again later.\n"
+            f"Error: {str(e)}",
+            parse_mode="Markdown"
+        )
 
 @rate_limited()
 async def newtokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1596,6 +1600,16 @@ async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limited()
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        # Verificar si las claves de Binance están configuradas
+        if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
+            await update.message.reply_text(
+                "⚠️ *Binance API keys not configured.*\n\n"
+                "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.\n"
+                "For testnet, also set BINANCE_TESTNET=true",
+                parse_mode="Markdown"
+            )
+            return
+
         engine = TradingEngine(testnet=True)
         usdt_balance = engine.get_balance("USDT")
         btc_balance = engine.get_balance("BTC")
@@ -1651,6 +1665,15 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     try:
+        if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
+            await update.message.reply_text(
+                "⚠️ *Binance API keys not configured.*\n\n"
+                "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.\n"
+                "For testnet, also set BINANCE_TESTNET=true",
+                parse_mode="Markdown"
+            )
+            return
+
         engine = TradingEngine(testnet=True)
         usdt_balance = engine.get_balance("USDT")
         btc_balance = engine.get_balance("BTC")
@@ -1902,6 +1925,16 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             order = context.user_data.get("pending_sell_order")
             if not order:
                 return
+            # Verificar claves de Binance antes de ejecutar
+            if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
+                await update.message.reply_text(
+                    "⚠️ *Binance API keys not configured.*\n\n"
+                    "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.",
+                    parse_mode="Markdown"
+                )
+                context.user_data.pop("pending_sell_confirm", None)
+                context.user_data.pop("pending_sell_order", None)
+                return
             engine = TradingEngine(testnet=True)
             result = engine.sell_market(order["symbol"], order["amount"])
             if result:
@@ -1914,6 +1947,7 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("❌ Type *YES* to confirm, or *NO* to cancel.")
             return
+
     if text not in ("yes", "sí", "si"):
         return
     order = context.user_data.get("pending_order")
@@ -1922,6 +1956,17 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not order.get("risk_accepted", True):
         await update.message.reply_text("❌ You must accept the risk by typing *CONFIRMAR*.")
         return
+
+    # Verificar claves de Binance antes de ejecutar
+    if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
+        await update.message.reply_text(
+            "⚠️ *Binance API keys not configured.*\n\n"
+            "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.",
+            parse_mode="Markdown"
+        )
+        context.user_data.pop("pending_order", None)
+        return
+
     chat_id = update.effective_chat.id
     engine = TradingEngine(testnet=True)
     commission = get_user_commission(chat_id)
@@ -2910,7 +2955,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"⚠️ Callback no reconocido: {data}")
         await query.edit_message_text("❌ Invalid option.")
 
-# ==================== WEBHOOK + WEB TERMINAL ====================
+# ==================== WEBHOOK + WEB TERMINAL (desactivado MP) ====================
+# Nota: el webhook de MercadoPago está completamente desactivado.
+# Solo mantenemos el endpoint /webhook por compatibilidad, pero devuelve "MP disabled".
+
 trade_history = []
 
 def add_trade_to_history(symbol, action, amount, price, pnl=None):
@@ -3096,11 +3144,9 @@ async def main():
     threading.Thread(target=lambda: webhook_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False), daemon=True).start()
     logger.info(f"✅ Web dashboard running on port {port}")
 
-    # Iniciar scheduler en hilo separado (si no está iniciado ya en el main original)
-    # Nota: tu código original ya tiene threading.Thread(target=run_scheduler, daemon=True).start()
-    # Si ya lo tienes, no lo dupliques. Yo lo dejo comentado por si acaso.
-    # threading.Thread(target=run_scheduler, daemon=True).start()
-    # logger.info("✅ Scheduler thread started.")
+    # Iniciar scheduler en hilo separado
+    threading.Thread(target=run_scheduler, daemon=True).start()
+    logger.info("✅ Scheduler thread started.")
 
     # Configurar bot
     application = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -3146,7 +3192,7 @@ async def main():
         await asyncio.sleep(60)
         logger.debug("Bot heartbeat")
 
-# ==================== MAIN ====================
+# ==================== FIN ====================
 if __name__ == "__main__":
     try:
         asyncio.run(main())
