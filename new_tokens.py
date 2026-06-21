@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import datetime
 
-# ==================== IMPORTACIÓN SEGURA DE SUPABASE ====================
+# Importación segura de Supabase (si no está instalado, usa local)
 try:
     from supabase import create_client, Client
     SUPABASE_AVAILABLE = True
@@ -15,11 +15,9 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# ==================== CONFIGURACIÓN ====================
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
-# ==================== INICIALIZACIÓN DE SUPABASE (SOLO SI ESTÁ DISPONIBLE) ====================
 supabase = None
 if SUPABASE_AVAILABLE and SUPABASE_URL and SUPABASE_KEY:
     try:
@@ -34,7 +32,6 @@ else:
     elif not SUPABASE_URL or not SUPABASE_KEY:
         logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not set. Using local storage.")
 
-# ==================== ALMACENAMIENTO LOCAL (fallback) ====================
 LOCAL_TOKENS_FILE = "new_tokens_cache.json"
 
 def _load_local_tokens():
@@ -48,14 +45,8 @@ def _save_local_tokens(tokens):
     with open(LOCAL_TOKENS_FILE, "w") as f:
         json.dump(tokens, f, indent=2, default=str)
 
-# ==================== FUNCIONES PRINCIPALES ====================
-
 def scan_new_pools(limit=10, min_liquidity=5000):
-    """
-    Escanea nuevos pools en DEX (simulado).
-    En producción, reemplazar con llamada a DexScreener, Birdeye, etc.
-    """
-    # Datos de ejemplo (puedes reemplazar con API real)
+    # SIMULADO: Reemplazar con DexScreener API real después
     sample_tokens = [
         {
             "address": "0x123abc...",
@@ -84,14 +75,10 @@ def scan_new_pools(limit=10, min_liquidity=5000):
             "holder_count": 80
         }
     ]
-    # Filtrar por liquidez mínima
     filtered = [t for t in sample_tokens if t.get("liquidity_usd", 0) >= min_liquidity]
     return filtered[:limit]
 
 def get_recent_tokens(limit=10):
-    """
-    Obtiene tokens recientes desde Supabase si está disponible, sino desde local.
-    """
     if supabase is not None:
         try:
             response = supabase.table("new_tokens").select("*").order("created_at", desc=True).limit(limit).execute()
@@ -103,22 +90,17 @@ def get_recent_tokens(limit=10):
         return _load_local_tokens()[:limit]
 
 def save_new_tokens(tokens):
-    """
-    Guarda tokens nuevos en Supabase si está disponible, sino en local.
-    """
     if not tokens:
         return
     if supabase is not None:
         try:
             for token in tokens:
-                # Evitar duplicados por address
                 existing = supabase.table("new_tokens").select("address").eq("address", token["address"]).execute()
                 if not existing.data:
                     supabase.table("new_tokens").insert(token).execute()
             logger.info(f"✅ Saved {len(tokens)} new tokens to Supabase")
         except Exception as e:
             logger.error(f"Error saving tokens to Supabase: {e}")
-            # Guardar local
             local = _load_local_tokens()
             existing_addresses = {t["address"] for t in local}
             for token in tokens:
@@ -134,9 +116,6 @@ def save_new_tokens(tokens):
         _save_local_tokens(local)
 
 def format_token_message(token):
-    """
-    Formatea un token para mensaje de Telegram.
-    """
     name = token.get("name", "Unknown")
     symbol = token.get("symbol", "???")
     address = token.get("address", "")
@@ -158,12 +137,3 @@ def format_token_message(token):
         msg += f"   💰 Buy Tax: {buy_tax}% | Sell Tax: {sell_tax}%\n"
     msg += f"   🆔 `{address[:8]}...{address[-6:]}`"
     return msg
-
-# ==================== PRUEBA RÁPIDA ====================
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    tokens = scan_new_pools()
-    print(f"🔍 Tokens encontrados: {len(tokens)}")
-    for t in tokens:
-        print(format_token_message(t))
-        print("-" * 40)
