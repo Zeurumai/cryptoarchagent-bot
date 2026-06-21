@@ -571,8 +571,7 @@ def predict_with_ai_advanced(alert: dict, all_alerts: list = None) -> dict:
         "factors": factors
     }
 
-# ==================== USER DATA ====================# ==========
-========== USER DATA ====================
+# ==================== USER DATA ====================
 USER_DATA = {}
 
 def load_user_data():
