@@ -14,7 +14,6 @@ import hashlib
 from datetime import datetime, timedelta
 from flask import Flask, request, render_template, jsonify
 from dotenv import load_dotenv
-# import mercadopago  # <--- ELIMINADO
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from whale_advanced import (
@@ -45,17 +44,11 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     raise ValueError("❌ TELEGRAM_TOKEN not found. Set it in .env")
 
-MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
-if not MP_ACCESS_TOKEN:
-    logger.warning("⚠️ MP_ACCESS_TOKEN not set. MercadoPago payments disabled.")
-
-MP_WEBHOOK_URL = os.getenv("MP_WEBHOOK_URL")
 BINANCE_REFERRAL_LINK = os.getenv("BINANCE_REFERRAL_LINK", "https://www.binance.com/en/register?ref=1249175745")
 
 # ==================== SEGURIDAD ====================
 ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "8355456581").split(",")))
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
-MP_WEBHOOK_SECRET = os.getenv("MP_WEBHOOK_SECRET", "")
 DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "20"))
 RATE_LIMIT_PERIOD = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
@@ -73,11 +66,9 @@ ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
 # ==================== IA PREDICTIVA AVANZADA ====================
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
 
-# Validación de variables críticas (MP es opcional)
+# Validación de variables críticas
 if not DASHBOARD_API_KEY or not ADMIN_SECRET:
     raise ValueError("❌ Missing DASHBOARD_API_KEY or ADMIN_SECRET in Railway")
-if not MP_WEBHOOK_SECRET:
-    logger.warning("⚠️ MP_WEBHOOK_SECRET not set. MercadoPago webhook disabled.")
 
 logger.info("✅ Security variables loaded")
 logger.info(f"🧠 Advanced AI Predictor: {'ENABLED' if AI_MODEL_ENABLED else 'DISABLED'}")
@@ -580,7 +571,8 @@ def predict_with_ai_advanced(alert: dict, all_alerts: list = None) -> dict:
         "factors": factors
     }
 
-# ==================== USER DATA ====================
+# ==================== USER DATA ====================# ==========
+========== USER DATA ====================
 USER_DATA = {}
 
 def load_user_data():
@@ -966,6 +958,38 @@ def check_new_tokens():
                     send_telegram(admin_id, msg)
     except Exception as e:
         logger.error(f"Error in check_new_tokens: {e}")
+
+# ==================== FUNCIÓN DEL SCHEDULER ====================
+def run_scheduler():
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
+# ==================== WEBHOOK + WEB TERMINAL ====================
+trade_history = []
+
+def add_trade_to_history(symbol, action, amount, price, pnl=None):
+    trade_history.append({
+        "timestamp": datetime.now().isoformat(),
+        "symbol": symbol,
+        "action": action,
+        "amount": amount,
+        "price": price,
+        "pnl": pnl if pnl is not None else 0.0
+    })
+    if len(trade_history) > 100:
+        trade_history.pop(0)
+
+webhook_app = Flask(__name__, template_folder='templates')
+
+def require_api_key(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        provided_key = request.headers.get('X-API-Key')
+        if not provided_key or provided_key != DASHBOARD_API_KEY:
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 # ==================== HANDLERS DE COMANDOS ====================
 async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2898,30 +2922,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Invalid option.")
 
 # ==================== WEBHOOK + WEB TERMINAL (desactivado MP) ====================
-trade_history = []
-
-def add_trade_to_history(symbol, action, amount, price, pnl=None):
-    trade_history.append({
-        "timestamp": datetime.now().isoformat(),
-        "symbol": symbol,
-        "action": action,
-        "amount": amount,
-        "price": price,
-        "pnl": pnl if pnl is not None else 0.0
-    })
-    if len(trade_history) > 100:
-        trade_history.pop(0)
-
-webhook_app = Flask(__name__, template_folder='templates')
-
-def require_api_key(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        provided_key = request.headers.get('X-API-Key')
-        if not provided_key or provided_key != DASHBOARD_API_KEY:
-            return jsonify({"error": "Unauthorized"}), 401
-        return f(*args, **kwargs)
-    return decorated
+# Nota: el webhook de MercadoPago está completamente desactivado.
+# Solo mantenemos el endpoint /webhook por compatibilidad, pero devuelve "MP disabled".
 
 @webhook_app.route('/webhook', methods=['POST'])
 def webhook():
@@ -3080,6 +3082,10 @@ if __name__ == "__main__":
         interval = int(os.getenv("NEW_TOKEN_SCAN_INTERVAL", "300"))
         schedule.every(interval).seconds.do(check_new_tokens)
         logger.info(f"🔄 New token scanner scheduled every {interval} seconds")
+
+    # Iniciar el scheduler en un hilo separado
+    threading.Thread(target=run_scheduler, daemon=True).start()
+    logger.info("✅ Scheduler thread started.")
 
     import asyncio
 
