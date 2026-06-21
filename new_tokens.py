@@ -6,6 +6,7 @@ from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
 
+# ==================== CONFIGURACIÓN ====================
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
@@ -21,6 +22,7 @@ if SUPABASE_URL and SUPABASE_KEY:
 else:
     logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not set. Using local storage.")
 
+# ==================== ALMACENAMIENTO LOCAL (fallback) ====================
 LOCAL_TOKENS_FILE = "new_tokens_cache.json"
 
 def _load_local_tokens():
@@ -34,46 +36,123 @@ def _save_local_tokens(tokens):
     with open(LOCAL_TOKENS_FILE, "w") as f:
         json.dump(tokens, f, indent=2, default=str)
 
+# ==================== FUNCIONES PRINCIPALES ====================
+
 def scan_new_pools(limit=10, min_liquidity=5000):
-    # Simulación; reemplaza con API real si quieres
-    sample = [
-        {"address": "0x123...", "symbol": "NEW1", "name": "New Token 1",
-         "chain": "ethereum", "liquidity_usd": 12000, "volume_24h": 50000,
-         "price_usd": 0.05, "created_at": datetime.now().isoformat(),
-         "buy_tax": 0, "sell_tax": 0, "holder_count": 150}
+    """
+    Escanea nuevos pools en DEX (simulado).
+    En producción, conectar a DexScreener, Birdeye, etc.
+    """
+    # Datos de ejemplo (reemplazar con API real)
+    sample_tokens = [
+        {
+            "address": "0x123abc...",
+            "symbol": "NEW1",
+            "name": "New Token 1",
+            "chain": "ethereum",
+            "liquidity_usd": 12000,
+            "volume_24h": 50000,
+            "price_usd": 0.05,
+            "created_at": datetime.now().isoformat(),
+            "buy_tax": 0,
+            "sell_tax": 0,
+            "holder_count": 150
+        },
+        {
+            "address": "0x456def...",
+            "symbol": "NEW2",
+            "name": "New Token 2",
+            "chain": "bsc",
+            "liquidity_usd": 8000,
+            "volume_24h": 30000,
+            "price_usd": 0.02,
+            "created_at": datetime.now().isoformat(),
+            "buy_tax": 2,
+            "sell_tax": 2,
+            "holder_count": 80
+        }
     ]
-    return [t for t in sample if t.get("liquidity_usd", 0) >= min_liquidity][:limit]
+    # Filtrar por liquidez mínima
+    filtered = [t for t in sample_tokens if t.get("liquidity_usd", 0) >= min_liquidity]
+    return filtered[:limit]
 
 def get_recent_tokens(limit=10):
+    """
+    Obtiene tokens recientes desde Supabase si está disponible, sino desde local.
+    """
     if supabase:
         try:
-            resp = supabase.table("new_tokens").select("*").order("created_at", desc=True).limit(limit).execute()
-            return resp.data if resp.data else []
+            response = supabase.table("new_tokens").select("*").order("created_at", desc=True).limit(limit).execute()
+            return response.data if response.data else []
         except Exception as e:
             logger.error(f"Error fetching tokens from Supabase: {e}")
+            # Fallback a local
             return _load_local_tokens()[:limit]
-    return _load_local_tokens()[:limit]
+    else:
+        return _load_local_tokens()[:limit]
 
 def save_new_tokens(tokens):
+    """
+    Guarda tokens nuevos en Supabase si está disponible, sino en local.
+    """
     if not tokens:
         return
     if supabase:
         try:
-            for t in tokens:
-                existing = supabase.table("new_tokens").select("address").eq("address", t["address"]).execute()
+            for token in tokens:
+                # Evitar duplicados por address
+                existing = supabase.table("new_tokens").select("address").eq("address", token["address"]).execute()
                 if not existing.data:
-                    supabase.table("new_tokens").insert(t).execute()
+                    supabase.table("new_tokens").insert(token).execute()
             logger.info(f"✅ Saved {len(tokens)} new tokens to Supabase")
         except Exception as e:
-            logger.error(f"Error saving tokens: {e}")
-            _save_local_tokens(_load_local_tokens() + tokens)
+            logger.error(f"Error saving tokens to Supabase: {e}")
+            # Guardar local
+            local = _load_local_tokens()
+            existing_addresses = {t["address"] for t in local}
+            for token in tokens:
+                if token["address"] not in existing_addresses:
+                    local.append(token)
+            _save_local_tokens(local)
     else:
-        _save_local_tokens(_load_local_tokens() + tokens)
+        local = _load_local_tokens()
+        existing_addresses = {t["address"] for t in local}
+        for token in tokens:
+            if token["address"] not in existing_addresses:
+                local.append(token)
+        _save_local_tokens(local)
 
 def format_token_message(token):
-    return (f"🪙 *{token.get('name', 'Unknown')} ({token.get('symbol', '???')})*\n"
-            f"   🔗 Chain: {token.get('chain', 'unknown').capitalize()}\n"
-            f"   💰 Price: ${token.get('price_usd', 0):.4f}\n"
-            f"   💧 Liquidity: ${token.get('liquidity_usd', 0):,.0f}\n"
-            f"   👥 Holders: {token.get('holder_count', '?')}\n"
-            f"   🆔 `{token.get('address', '')[:8]}...{token.get('address', '')[-6:]}`")
+    """
+    Formatea un token para mensaje de Telegram.
+    """
+    name = token.get("name", "Unknown")
+    symbol = token.get("symbol", "???")
+    address = token.get("address", "")
+    chain = token.get("chain", "unknown")
+    price = token.get("price_usd", 0)
+    liquidity = token.get("liquidity_usd", 0)
+    volume = token.get("volume_24h", 0)
+    holders = token.get("holder_count", "?")
+    buy_tax = token.get("buy_tax", 0)
+    sell_tax = token.get("sell_tax", 0)
+    
+    msg = f"🪙 *{name} ({symbol})*\n"
+    msg += f"   🔗 Chain: {chain.capitalize()}\n"
+    msg += f"   💰 Price: ${price:.4f}\n"
+    msg += f"   💧 Liquidity: ${liquidity:,.0f}\n"
+    msg += f"   📊 24h Volume: ${volume:,.0f}\n"
+    msg += f"   👥 Holders: {holders}\n"
+    if buy_tax or sell_tax:
+        msg += f"   💰 Buy Tax: {buy_tax}% | Sell Tax: {sell_tax}%\n"
+    msg += f"   🆔 `{address[:8]}...{address[-6:]}`"
+    return msg
+
+# ==================== PRUEBA RÁPIDA (opcional) ====================
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    tokens = scan_new_pools()
+    print(f"🔍 Tokens encontrados: {len(tokens)}")
+    for t in tokens:
+        print(format_token_message(t))
+        print("-" * 40)
