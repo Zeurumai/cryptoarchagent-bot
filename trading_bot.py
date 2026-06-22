@@ -2567,7 +2567,7 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in whale_callback: {e}")
         await query.edit_message_text("⚠️ Error fetching whale data. Try again later.")
 
-@rate_limited()@rate_limited()
+@rate_limited()
 async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     
