@@ -602,14 +602,12 @@ else:
     logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not configured. Using local files.")
 
 # ==================== HELPER PARA RLS ====================
+# ==================== HELPER PARA RLS ====================
 async def supabase_set_user(chat_id: str):
     """Establece el chat_id en la sesión de Supabase para que RLS funcione."""
     if supabase:
         try:
-            supabase.rpc('set_config', {
-                'parameter': 'app.current_user_id',
-                'value': str(chat_id)
-            }).execute()
+            supabase.execute(f"SELECT set_config('app.current_user_id', '{chat_id}', false)")
             logger.debug(f"✅ Supabase session set for chat_id: {chat_id}")
         except Exception as e:
             logger.error(f"❌ Error setting Supabase session: {e}")
