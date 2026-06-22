@@ -1562,6 +1562,20 @@ async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(get_text(chat_id, 'plans'), parse_mode="Markdown")
 
 @rate_limited()
+async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    args = context.args
+    if not args:
+        await update.message.reply_text("❌ Usage: `/setemail your@email.com`", parse_mode="Markdown")
+        return
+    email = args[0].strip()
+    if "@" not in email or "." not in email:
+        await update.message.reply_text("❌ Invalid email address.")
+        return
+    set_user_email(chat_id, email)
+    await update.message.reply_text(f"✅ Email saved: `{email}`.", parse_mode="Markdown")
+
+@rate_limited()
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:
