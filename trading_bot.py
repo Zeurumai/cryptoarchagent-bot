@@ -586,7 +586,7 @@ def save_user_data():
 
 load_user_data()
 
-# ==================== SUPABASE (INICIALIZACIÓN SEGURA) ====================
+# ========== SUPABASE (INICIALIZACIÓN SEGURA) ==========
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
@@ -594,12 +594,25 @@ supabase = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
         supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        logger.info("✅ Connected to Supabase")
+        logger.info("🔒 Connected to Supabase")
     except Exception as e:
         logger.warning(f"⚠️ Supabase connection failed: {e}. Using local files.")
         supabase = None
 else:
     logger.warning("⚠️ SUPABASE_URL or SUPABASE_KEY not configured. Using local files.")
+
+# ==================== HELPER PARA RLS ====================
+async def supabase_set_user(chat_id: str):
+    """Establece el chat_id en la sesión de Supabase para que RLS funcione."""
+    if supabase:
+        try:
+            supabase.rpc('set_config', {
+                'parameter': 'app.current_user_id',
+                'value': str(chat_id)
+            }).execute()
+            logger.debug(f"✅ Supabase session set for chat_id: {chat_id}")
+        except Exception as e:
+            logger.error(f"❌ Error setting Supabase session: {e}")
 
 SUBSCRIBERS_FILE = "subscribers.json"
 
@@ -1450,6 +1463,10 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limited()
 async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
+    
+    # === LLAMAR A LA FUNCIÓN HELPER PARA RLS ===
+    await supabase_set_user(chat_id)
+    
     args = context.args
 
     if not supabase:
@@ -1639,6 +1656,10 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limited()
 async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    
+    # === LLAMAR A LA FUNCIÓN HELPER PARA RLS ===
+    await supabase_set_user(str(chat_id))
+    
     level = get_user_level(chat_id)
     if level >= 1:
         subscribers = load_subscribers()
@@ -1670,6 +1691,10 @@ async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limited()
 async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    
+    # === LLAMAR A LA FUNCIÓN HELPER PARA RLS ===
+    await supabase_set_user(str(chat_id))
+    
     await update.message.reply_text(
         "🔍 *Checking your Binance balance...*\n\n"
         "⚠️ *IMPORTANT:* This checks your TESTNET balance.\n"
@@ -1747,10 +1772,13 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "To upgrade, deposit funds in Binance and use our referral link.",
             parse_mode="Markdown"
         )
-
 @rate_limited()
 async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    
+    # === LLAMAR A LA FUNCIÓN HELPER PARA RLS ===
+    await supabase_set_user(str(chat_id))
+    
     subscribers = load_subscribers()
     data_sub = subscribers.get(str(chat_id), {"plan": "free", "fee": None})
     fee = data_sub.get("fee", None)
@@ -1784,20 +1812,6 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         message = "⏰ *Trial expired.* Please deposit or subscribe to continue."
     await update.message.reply_text(message, parse_mode="Markdown")
-
-async def setemail(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    args = context.args
-    if not args:
-        await update.message.reply_text("❌ Usage: `/setemail your@email.com`", parse_mode="Markdown")
-        return
-    email = args[0].strip()
-    if "@" not in email or "." not in email:
-        await update.message.reply_text("❌ Invalid email address.")
-        return
-    set_user_email(chat_id, email)
-    await update.message.reply_text(f"✅ Email saved: `{email}`.", parse_mode="Markdown")
-
 @rate_limited()
 async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
@@ -2553,7 +2567,42 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in whale_callback: {e}")
         await query.edit_message_text("⚠️ Error fetching whale data. Try again later.")
 
-@rate_limited()
+@rate_limited()@rate_limited()
+async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    
+    # === LLAMAR A LA FUNCIÓN HELPER PARA RLS ===
+    await supabase_set_user(chat_id)
+    
+    if not supabase:
+        await update.message.reply_text("❌ Database not available.")
+        return
+    try:
+        rules = supabase.table("rules").select("*").eq("chat_id", chat_id).execute()
+        if not rules.data:
+            text = "🤖 *No auto trading rules configured.*\n\n"
+            text += "Use `/rule add` to create one.\n"
+            text += "Example: `/rule add \"whale_buy_btc > 100\" buy 50 5 10`"
+            await update.message.reply_text(text, parse_mode="Markdown")
+            return
+        text = "🤖 *Your auto trading rules:*\n\n"
+        for r in rules.data:
+            status = "✅ Active" if r["active"] else "❌ Paused"
+            text += f"🔹 *ID {r['id']}*: {r['condition']}\n"
+            text += f"   Action: {r['action']} | Amount: ${r['amount']} USDT\n"
+            text += f"   Stop-loss: {r['stop_loss']}% | Take-profit: {r['take_profit']}%\n"
+            text += f"   Status: {status}\n"
+            text += f"   📌 `/rule toggle {r['id']}` · `/rule delete {r['id']}`\n\n"
+        text += "\n*Commands:*\n"
+        text += "/rule add [condition] [action] [amount] [stop_loss] [take_profit]\n"
+        text += "Example: `/rule add \"whale_buy_btc > 100\" buy 50 5 10`\n"
+        text += "/rule list - Show all rules\n"
+        text += "/rule toggle [id] - Activate/pause\n"
+        text += "/rule delete [id] - Delete rule"
+        await update.message.reply_text(text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error in rules_menu: {e}")
+        await update.message.reply_text("❌ Internal error. Try again later.")
 async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     if not supabase:
@@ -2589,6 +2638,10 @@ async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limited()
 async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
+    
+    # === LLAMAR A LA FUNCIÓN HELPER PARA RLS ===
+    await supabase_set_user(chat_id)
+    
     args = context.args
     if not supabase:
         await update.message.reply_text("❌ Database not available.")
@@ -2698,6 +2751,10 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limited()
 async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
+    
+    # === LLAMAR A LA FUNCIÓN HELPER PARA RLS ===
+    await supabase_set_user(chat_id)
+    
     if not supabase:
         await update.message.reply_text("❌ Database not available.")
         return
@@ -2727,10 +2784,13 @@ async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.error(f"Error in snipe_settings_menu: {e}")
         await update.message.reply_text("❌ Internal error. Try again later.")
-
 @rate_limited()
 async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
+    
+    # === LLAMAR A LA FUNCIÓN HELPER PARA RLS ===
+    await supabase_set_user(chat_id)
+    
     args = context.args
     if not supabase:
         await update.message.reply_text("❌ Database not available.")
@@ -2799,6 +2859,10 @@ async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limited()
 async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
+    
+    # === LLAMAR A LA FUNCIÓN HELPER PARA RLS ===
+    await supabase_set_user(chat_id)
+    
     args = context.args
     if not supabase:
         await update.message.reply_text("❌ Database not available.")
