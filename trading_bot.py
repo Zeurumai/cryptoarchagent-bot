@@ -62,7 +62,7 @@ PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))
 # ==================== ANTI-MEV / ANTI-RUG ====================
 GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")
 ANTI_MEV_ENABLED = os.getenv("ANTI_MEV_ENABLED", "true").lower() == "true"
-ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true")
+ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
 
 # ==================== IA PREDICTIVA ====================
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
