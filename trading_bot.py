@@ -1330,10 +1330,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await update.message.reply_text(output, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-        chat_id_str = str(update.effective_chat.id)
-        await evaluate_rules(chat_id_str, all_alerts, context)
-        await execute_sniper(chat_id_str, all_alerts, context)
-
     except Exception as e:
         logger.error(f"Error in whale: {e}")
         await update.message.reply_text(
@@ -2393,6 +2389,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sniper(update, context)
         elif data == "compare":
             await compare(update, context)
+        elif data == "predict":
+            await predict_command(update, context)
         elif data == "menu":
             await start(update, context)
         else:
@@ -2533,10 +2531,6 @@ async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🧠 AI Prediction", callback_data="predict")]
         ]
         await query.edit_message_text(output, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-        chat_id_str = str(update.effective_chat.id)
-        await evaluate_rules(chat_id_str, all_alerts, context)
-        await execute_sniper(chat_id_str, all_alerts, context)
 
     except Exception as e:
         logger.error(f"Error in whale_callback: {e}")
