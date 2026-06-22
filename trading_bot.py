@@ -62,7 +62,7 @@ PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))
 # ==================== ANTI-MEV / ANTI-RUG ====================
 GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")
 ANTI_MEV_ENABLED = os.getenv("ANTI_MEV_ENABLED", "true").lower() == "true"
-ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
+ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true")
 
 # ==================== IA PREDICTIVA ====================
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
@@ -569,8 +569,7 @@ def predict_with_ai_advanced(alert: dict, all_alerts: list = None) -> dict:
         "details": detail,
         "factors": factors
     }
-
-# ==================== USER DATA ====================
+    # ==================== USER DATA ====================
 USER_DATA = {}
 
 def load_user_data():
@@ -1296,8 +1295,6 @@ async def sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 @rate_limited()
-# ==================== WHALE (comando) ====================
-@rate_limited()
 async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
     try:
@@ -1339,55 +1336,16 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-# ==================== WHALE_CALLBACK (botón desde el menú) ====================
-async def whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.edit_message_text("🐋 *Fetching whale movements...*", parse_mode="Markdown")
-    try:
-        btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
-        eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
-        sol_alerts = await asyncio.to_thread(obtener_alertas_solana, 10000, 3)
-        matic_alerts = await asyncio.to_thread(obtener_alertas_polygon, 5000, 3)
-        arb_alerts = await asyncio.to_thread(obtener_alertas_arbitrum, 5000, 3)
-        all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
-
-        if not all_alerts:
-            await query.edit_message_text("🐋 No significant whale movements detected.")
-            return
-
-        context.user_data["last_whale_alerts"] = all_alerts
-        output = "📊 *RECENT WHALE MOVEMENTS*\n\n"
-        for alert in all_alerts[:5]:
-            emoji, desc, sentiment, value = analizar_alerta(alert)
-            output += f"{emoji} {desc}\n"
-            output += f"   💰 Value: ${value:,.2f} USD | {sentiment}\n"
-            ia_analysis = analizar_con_ia(alert)
-            if ia_analysis:
-                output += f"   🧠 *AI:* {ia_analysis}\n"
-        fg = get_fear_greed_index()
-        output += f"\n📉 *Fear & Greed:* {fg['value']}/100 ({fg['classification']})"
-
-        keyboard = [
-            [InlineKeyboardButton("🐋 Copy this whale", callback_data="copy_whale")],
-            [InlineKeyboardButton("⚔️ Why we're better", callback_data="compare")],
-            [InlineKeyboardButton("🧠 AI Prediction", callback_data="predict")]
-        ]
-        await query.edit_message_text(output, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Error in whale_callback: {e}")
-        await query.edit_message_text("⚠️ Error fetching whale data. Try again later.")
-
-# ==================== COMPARE (comando y callback) ====================
 @rate_limited()
 async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Si es un callback, obtener el objeto correcto
     if hasattr(update, 'callback_query'):
         query = update.callback_query
         await query.answer()
         chat_id = query.message.chat.id
+        edit_mode = True
     else:
         chat_id = update.effective_chat.id
+        edit_mode = False
 
     logger.info(f"📊 /compare ejecutado por {chat_id}")
     text = """
@@ -1422,25 +1380,18 @@ Use /plan to check your level.
 
 *Choose wisely. Or don't. But you've been warned.* 🚀
 """
-    # Si es callback, editar mensaje; si es comando, enviar nuevo
-    if hasattr(update, 'callback_query'):
+    if edit_mode:
         await query.edit_message_text(text, parse_mode="Markdown")
     else:
         await update.message.reply_text(text, parse_mode="Markdown")
 
-# ==================== PREDICT_COMMAND (comando y callback) ====================
 @rate_limited()
 async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Si es un callback, obtener el objeto correcto
     if hasattr(update, 'callback_query'):
         query = update.callback_query
         await query.answer()
-        chat_id = query.message.chat.id
-        message_obj = query.message
         edit_mode = True
     else:
-        chat_id = update.effective_chat.id
-        message_obj = update.message
         edit_mode = False
 
     if not AI_MODEL_ENABLED:
@@ -1448,7 +1399,7 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if edit_mode:
             await query.edit_message_text(msg, parse_mode="Markdown")
         else:
-            await message_obj.reply_text(msg, parse_mode="Markdown")
+            await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
     if not context.user_data.get("last_whale_alerts"):
@@ -1456,7 +1407,7 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if edit_mode:
             await query.edit_message_text(msg, parse_mode="Markdown")
         else:
-            await message_obj.reply_text(msg, parse_mode="Markdown")
+            await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
     try:
@@ -1486,7 +1437,7 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if edit_mode:
             await query.edit_message_text(msg, parse_mode="Markdown")
         else:
-            await message_obj.reply_text(msg, parse_mode="Markdown")
+            await update.message.reply_text(msg, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Error in predict: {e}")
@@ -1494,220 +1445,308 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if edit_mode:
             await query.edit_message_text(error_msg, parse_mode="Markdown")
         else:
-            await message_obj.reply_text(error_msg, parse_mode="Markdown")
+            await update.message.reply_text(error_msg, parse_mode="Markdown")
 
-# ==================== BUTTON_HANDLER (maneja TODOS los callbacks) ====================
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    chat_id = update.effective_chat.id
-    
-    logger.info(f"🔘 Callback recibido: {data} de chat {chat_id}")
-    
-    if is_rate_limited(chat_id):
-        await query.edit_message_text("⏳ Too many requests. Please wait.")
+@rate_limited()
+async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    args = context.args
+
+    if not supabase:
+        await update.message.reply_text(
+            "⚠️ *Copy Trading not available*\n\n"
+            "This feature requires Supabase to be connected.\n"
+            "Please configure SUPABASE_URL and SUPABASE_KEY in Railway.",
+            parse_mode="Markdown"
+        )
         return
-    
+
+    if not args:
+        try:
+            settings = supabase.table("copy_settings").select("*").eq("chat_id", chat_id).execute()
+            if settings.data:
+                s = settings.data[0]
+                text = (
+                    f"🐋 *Copy Trading Settings*\n\n"
+                    f"💰 Max amount: {s['max_amount']} USDT\n"
+                    f"📉 Slippage: {s['slippage']}%\n"
+                    f"🔄 Mode: {s['mode']}\n"
+                    f"✅ Active: {'✅ Yes' if s['active'] else '❌ No'}\n\n"
+                    f"To change: `/copy [amount] [slippage] [mode] [on/off]`\n"
+                    f"Example: `/copy 20 1.5 follow on`"
+                )
+                await update.message.reply_text(text, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(
+                    "🐋 *Copy Trading not configured*\n\n"
+                    "To set it up, use: `/copy [amount] [slippage] [mode] [on/off]`\n"
+                    "Example: `/copy 20 1.5 follow on`\n\n"
+                    "Modes:\n"
+                    "• `follow` → buy when whale buys (bullish)\n"
+                    "• `invert` → buy when whale sells (contrarian)",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            logger.error(f"Error loading copy settings: {e}")
+            await update.message.reply_text("❌ Internal error. Try again later.")
+        return
+
     try:
-        if data == "status":
-            await show_status(query)
-        elif data == "alerts_list":
-            await show_alerts(query, chat_id)
-        elif data == "new_alert_coin":
-            await new_alert_coin(query, chat_id)
-        elif data.startswith("new_alert_price_"):
-            coin = data.split("_")[3]
-            context.user_data["new_alert_coin"] = coin
-            await new_alert_condition(query, coin, chat_id)
-        elif data.startswith("new_alert_condition_"):
-            cond = data.split("_")[3]
-            context.user_data["new_alert_condition"] = cond
-            await query.edit_message_text(f"💰 Enter target price for {context.user_data['new_alert_coin']} {cond}\nExample: 50000")
-            context.user_data["awaiting_alert_price"] = True
-        elif data.startswith("alert_toggle_"):
-            idx = int(data.split("_")[2])
-            toggle_alert(chat_id, idx)
-            await show_alerts(query, chat_id)
-        elif data.startswith("alert_delete_"):
-            idx = int(data.split("_")[2])
-            delete_alert(chat_id, idx)
-            await show_alerts(query, chat_id)
-        elif data == "reports_config":
-            await reports_menu(query, chat_id)
-        elif data.startswith("report_type_"):
-            report_type = data.split("_")[2]
-            context.user_data["report_type"] = report_type
-            await query.edit_message_text(f"⏰ Enter time for {report_type.upper()} report (HH:MM, e.g. 08:30)")
-            context.user_data["awaiting_report_time"] = True
-        elif data == "help":
-            await help_menu(query, chat_id)
-        elif data == "balance":
-            try:
-                if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
-                    await query.edit_message_text(
-                        "⚠️ *Binance API keys not configured.*\n\n"
-                        "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.",
-                        parse_mode="Markdown"
-                    )
-                    return
-                engine = TradingEngine(testnet=True)
-                usdt_balance = engine.get_balance("USDT")
-                btc_balance = engine.get_balance("BTC")
-                message = f"💰 *Testnet Balance*\nUSDT: ${usdt_balance:.2f}\nBTC: {btc_balance:.8f}\n\n⚠️ This is TESTNET balance (fake money). To trade real money, deposit on real Binance and use /activate."
-                await query.edit_message_text(message, parse_mode="Markdown")
-            except Exception as e:
-                logger.error(f"Error en balance: {e}")
-                await query.edit_message_text("❌ Internal error. Try again later.", parse_mode="Markdown")
-        elif data == "premium":
-            level = get_user_level(chat_id)
-            if level >= 1:
-                subscribers = load_subscribers()
-                data_sub = subscribers.get(str(chat_id), {})
-                plan = data_sub.get("plan", "free")
-                end_str = data_sub.get("end")
-                insignia = get_user_insignia(chat_id)
-                commission = get_user_commission(chat_id)
-                benefits = get_level_benefits(level)
-                level_name = LEVELS[level]["name"]
-                if end_str:
-                    end_date = datetime.fromisoformat(end_str).strftime("%d/%m/%Y")
-                    message = f"✨ *{insignia} {level_name}* ✨\n\n📅 *Valid until:* {end_date}\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n"
-                    if get_token_reward(chat_id) > 0:
-                        message += f"🪙 *Token reward:* {get_token_reward(chat_id)*100:.2f}% of all bot commissions\n"
-                    message += "\n✅ Real trading access\n✅ Reduced fee\n✅ Whale alerts"
-                else:
-                    message = f"✨ *{insignia} {level_name}* ✨\n\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n"
-                    if get_token_reward(chat_id) > 0:
-                        message += f"🪙 *Token reward:* {get_token_reward(chat_id)*100:.2f}% of all bot commissions\n"
-                    message += "\n✅ Lifetime access\n✅ Whale alerts"
-            elif level == 0:
-                message = "🧭 *Explorer* (Trial)\n\n💰 Commission: 0.5%\n🎁 Benefits: 14 days free, 3 alerts, trading access\n\nUpgrade with /activate."
-            else:
-                message = "🔒 *FREE user*\n\nTo get started, use /start."
-            await query.edit_message_text(message, parse_mode="Markdown")
-        elif data == "whale":
-            await whale_callback(update, context)
-        elif data == "plans":
-            await query.edit_message_text(get_text(chat_id, 'plans'), parse_mode="Markdown")
-        elif data == "news":
-            await query.edit_message_text("📰 *Fetching latest news...*", parse_mode="Markdown")
-            sources = [
-                "https://cointelegraph.com/rss",
-                "https://cryptopotato.com/feed/",
-                "https://news.google.com/rss/search?q=cryptocurrency&hl=en&gl=US&ceid=US:en"
-            ]
-            for url in sources:
-                try:
-                    feed = feedparser.parse(url)
-                    if feed.entries:
-                        message = "📰 *Latest crypto news*\n\n"
-                        for entry in feed.entries[:5]:
-                            title = entry.title
-                            link = entry.link
-                            message += f"• [{title}]({link})\n"
-                        await query.edit_message_text(message, parse_mode="Markdown", disable_web_page_preview=True)
-                        return
-                except Exception as e:
-                    logger.warning(f"Error with source {url}: {e}")
-                    continue
-            await query.edit_message_text("No news found at the moment. Try again later.", parse_mode="Markdown")
-        elif data == "info":
-            keyboard = [
-                [InlineKeyboardButton("BTC", callback_data="info_coin_BTC")],
-                [InlineKeyboardButton("ETH", callback_data="info_coin_ETH")],
-                [InlineKeyboardButton("SOL", callback_data="info_coin_SOL")],
-                [InlineKeyboardButton("XRP", callback_data="info_coin_XRP")],
-                [InlineKeyboardButton("BNB", callback_data="info_coin_BNB")],
-                [InlineKeyboardButton("LINK", callback_data="info_coin_LINK")],
-                [InlineKeyboardButton("AVAX", callback_data="info_coin_AVAX")],
-                [InlineKeyboardButton("🔙 Back", callback_data="menu")]
-            ]
-            await query.edit_message_text("📈 *Select a coin for detailed info*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        elif data.startswith("info_coin_"):
-            symbol = data.split("_")[2]
-            await show_coin_info(query, symbol)
-        elif data == "buy":
-            level = get_user_level(chat_id)
-            if level == -1:
-                await query.edit_message_text(
-                    "⏰ *Your trial has expired!*\n\n"
-                    "To continue trading, deposit on Binance with our referral link:\n"
-                    f"{BINANCE_REFERRAL_LINK}\n\n"
-                    "Or wait for $CARCH token launch.",
-                    parse_mode="Markdown"
-                )
-            else:
-                await query.edit_message_text("⚠️ To buy, use the command:\n`/buy [amount] [symbol]`\nExample: `/buy 0.001 BTCUSDT`\n\nYou can also reply with YES after the confirmation.", parse_mode="Markdown")
-        elif data == "sell":
-            level = get_user_level(chat_id)
-            if level == -1:
-                await query.edit_message_text(
-                    "⏰ *Your trial has expired!*\n\n"
-                    "To continue trading, deposit on Binance with our referral link:\n"
-                    f"{BINANCE_REFERRAL_LINK}\n\n"
-                    "Or wait for $CARCH token launch.",
-                    parse_mode="Markdown"
-                )
-            else:
-                await query.edit_message_text("⚠️ To sell, use the command:\n`/sell [amount] [symbol]`\nExample: `/sell 0.001 BTCUSDT`\n\nYou can also reply with YES after the confirmation.", parse_mode="Markdown")
-        elif data == "activate":
-            await activate_from_callback(query, chat_id)
-        elif data == "plan":
-            subscribers = load_subscribers()
-            data_sub = subscribers.get(str(chat_id), {"plan": "free", "fee": None})
-            fee = data_sub.get("fee", None)
-            level = get_user_level(chat_id)
-            if level >= 0:
-                insignia = get_user_insignia(chat_id)
-                commission = get_user_commission(chat_id)
-                benefits = get_level_benefits(level)
-                level_name = LEVELS[level]["name"]
-                token_reward = get_token_reward(chat_id)
-                message = f"📋 *Your current level*\n\n{insignia} *{level_name}*\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n"
-                if token_reward > 0:
-                    message += f"🪙 *Token reward:* {token_reward*100:.2f}% of all bot commissions in $CARCH\n"
-                if fee:
-                    message += f"💰 Trade fee (testnet): {fee}%\n"
-                else:
-                    message += "💰 No real trading.\n"
-                if level == 3:
-                    message += "\n👑 *You are an ELITE member!*"
-                elif level == 4:
-                    message += "\n🏆 *You are LEGENDARY!*"
-                else:
-                    message += f"\n*How to upgrade?*\n"
-                    message += f"1. Register on Binance using our link: {BINANCE_REFERRAL_LINK}\n"
-                    message += "2. Deposit the required amount:\n"
-                    message += "   • Trader: 50 USDT (0.4% fee)\n"
-                    message += "   • Pro: 100 USDT (0.3% fee + premium)\n"
-                    message += "   • Elite: 500 USDT (0.3% fee + token reward)\n"
-                    message += "3. Run /activate to upgrade your level.\n"
-                    message += "4. Or get $CARCH tokens (coming soon)."
-            else:
-                message = "⏰ *Trial expired.* Please deposit or subscribe to continue."
-            await query.edit_message_text(message, parse_mode="Markdown")
-        elif data == "copy_whale":
-            await copy_whale_callback(update, context)
-        elif data == "rules":
-            await rules_menu(update, context)
-        elif data == "snipe":
-            await snipe_settings_menu(update, context)
-        elif data == "sniper":
-            await sniper(update, context)
-        elif data == "compare":
-            await compare(update, context)
-        elif data == "predict":
-            await predict_command(update, context)
-        elif data == "menu":
-            await start(update, context)
-        else:
-            logger.warning(f"⚠️ Callback no reconocido: {data}")
-            await query.edit_message_text("❌ Invalid option.")
+        if len(args) < 4:
+            await update.message.reply_text("❌ Usage: `/copy [amount] [slippage] [mode] [on/off]`")
+            return
+        max_amount = float(args[0])
+        slippage = float(args[1])
+        mode = args[2].lower()
+        active = args[3].lower() == "on"
+        if mode not in ["follow", "invert"]:
+            await update.message.reply_text("❌ Mode must be 'follow' or 'invert'")
+            return
+        if max_amount <= 0 or slippage < 0:
+            await update.message.reply_text("❌ Amount must be > 0 and slippage >= 0")
+            return
+        data = {
+            "chat_id": chat_id,
+            "max_amount": max_amount,
+            "slippage": slippage,
+            "mode": mode,
+            "active": active,
+            "updated_at": datetime.now().isoformat()
+        }
+        supabase.table("copy_settings").upsert(data).execute()
+        await update.message.reply_text(
+            f"✅ *Copy settings saved!*\n\n"
+            f"💰 Max amount: {max_amount} USDT\n"
+            f"📉 Slippage: {slippage}%\n"
+            f"🔄 Mode: {mode}\n"
+            f"✅ Active: {'✅ Yes' if active else '❌ No'}",
+            parse_mode="Markdown"
+        )
+    except ValueError:
+        await update.message.reply_text("❌ Invalid number format. Use decimal points (ej: 20.5)")
     except Exception as e:
-        logger.error(f"Error en button_handler: {e}")
-        logger.error(traceback.format_exc())
-        await query.edit_message_text(f"❌ Error interno: {e}")
+        logger.error(f"Error saving copy settings: {e}")
+        await update.message.reply_text("❌ Internal error. Try again later.")
+
+@rate_limited()
+async def newtokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tokens = get_recent_tokens(limit=10)
+    if not tokens:
+        await update.message.reply_text("No new tokens detected recently. Stay tuned!")
+        return
+    msg = "🚀 *Latest New Tokens (24h)*\n\n"
+    for token in tokens[:10]:
+        msg += format_token_message(token) + "\n"
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+@rate_limited()
+async def plans_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(get_text(chat_id, 'plans'), parse_mode="Markdown")
+
+@rate_limited()
+async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if not args:
+        await update.message.reply_text("❌ Usage: `/info [symbol]`\nExample: `/info BTC`", parse_mode="Markdown")
+        return
+    symbol = args[0].upper()
+    mapping = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "XRP": "ripple",
+               "BNB": "binancecoin", "LINK": "chainlink", "AVAX": "avalanche-2"}
+    coin_id = mapping.get(symbol)
+    if not coin_id:
+        await update.message.reply_text("❌ Unsupported coin. Options: BTC, ETH, SOL, XRP, BNB, LINK, AVAX")
+        return
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code != 200:
+            await update.message.reply_text("⚠️ Could not fetch data. Try again later.")
+            return
+        data = r.json()
+        price = data["market_data"]["current_price"]["usd"]
+        market_cap = data["market_data"]["market_cap"]["usd"]
+        volume = data["market_data"]["total_volume"]["usd"]
+        change_24h = data["market_data"]["price_change_percentage_24h"]
+        ath = data["market_data"]["ath"]["usd"]
+        atl = data["market_data"]["atl"]["usd"]
+        rank = data["market_cap_rank"]
+        message = (
+            f"📈 *{symbol} - {data['name']}*\n\n"
+            f"💰 Price: ${price:,.2f} USD\n"
+            f"📊 Market cap: ${market_cap:,.0f}\n"
+            f"📉 Volume (24h): ${volume:,.0f}\n"
+            f"📈 24h change: {change_24h:.2f}%\n"
+            f"🏆 All-time high: ${ath:,.2f}\n"
+            f"📉 All-time low: ${atl:,.2f}\n"
+            f"🔢 Rank: #{rank}\n\n"
+            f"Data from CoinGecko (informational only)."
+        )
+        await update.message.reply_text(message, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error in /info: {e}")
+        await update.message.reply_text("❌ Internal error. Try again later.")
+
+@rate_limited()
+async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📰 *Fetching latest news...*", parse_mode="Markdown")
+    sources = [
+        "https://cointelegraph.com/rss",
+        "https://cryptopotato.com/feed/",
+        "https://news.google.com/rss/search?q=cryptocurrency&hl=en&gl=US&ceid=US:en"
+    ]
+    for url in sources:
+        try:
+            feed = feedparser.parse(url)
+            if feed.entries:
+                message = "📰 *Latest crypto news*\n\n"
+                for entry in feed.entries[:5]:
+                    title = entry.title
+                    link = entry.link
+                    message += f"• [{title}]({link})\n"
+                await update.message.reply_text(message, parse_mode="Markdown", disable_web_page_preview=True)
+                return
+        except Exception as e:
+            logger.warning(f"Error with source {url}: {e}")
+            continue
+    await update.message.reply_text("No news found at the moment. Try again later.")
+
+async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(f"🆔 *Your user ID:* `{chat_id}`", parse_mode="Markdown")
+
+@rate_limited()
+async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
+            await update.message.reply_text(
+                "⚠️ *Binance API keys not configured.*\n\n"
+                "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.\n"
+                "For testnet, also set BINANCE_TESTNET=true",
+                parse_mode="Markdown"
+            )
+            return
+
+        engine = TradingEngine(testnet=True)
+        usdt_balance = engine.get_balance("USDT")
+        btc_balance = engine.get_balance("BTC")
+        message = f"💰 *Testnet Balance*\nUSDT: ${usdt_balance:.2f}\nBTC: {btc_balance:.8f}\n\n⚠️ This is TESTNET balance (fake money)."
+        await update.message.reply_text(message, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error in balance: {e}")
+        await update.message.reply_text("❌ Internal error. Try again later.", parse_mode="Markdown")
+
+@rate_limited()
+async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    level = get_user_level(chat_id)
+    if level >= 1:
+        subscribers = load_subscribers()
+        data = subscribers.get(str(chat_id), {})
+        plan = data.get("plan", "free")
+        end_str = data.get("end")
+        insignia = get_user_insignia(chat_id)
+        commission = get_user_commission(chat_id)
+        benefits = get_level_benefits(level)
+        level_name = LEVELS[level]["name"]
+        token_reward = get_token_reward(chat_id)
+        if end_str:
+            end_date = datetime.fromisoformat(end_str).strftime("%d/%m/%Y")
+            message = f"✨ *{insignia} {level_name}* ✨\n\n📅 *Valid until:* {end_date}\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n"
+            if token_reward > 0:
+                message += f"🪙 *Token reward:* {token_reward*100:.2f}% of all bot commissions\n"
+            message += "\n✅ Real trading access\n✅ Reduced fee\n✅ Whale alerts"
+        else:
+            message = f"✨ *{insignia} {level_name}* ✨\n\n💰 *Commission:* {commission*100:.1f}%\n🎁 *Benefits:* {benefits}\n"
+            if token_reward > 0:
+                message += f"🪙 *Token reward:* {token_reward*100:.2f}% of all bot commissions\n"
+            message += "\n✅ Lifetime access\n✅ Whale alerts"
+    elif level == 0:
+        message = "🧭 *Explorer* (Trial)\n\n💰 Commission: 0.5%\n🎁 Benefits: 14 days free, 3 alerts, trading access\n\nUpgrade with /activate."
+    else:
+        message = "🔒 *FREE user*\n\nTo get started, use /start."
+    await update.message.reply_text(message, parse_mode="Markdown")
+
+@rate_limited()
+async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(
+        "🔍 *Checking your Binance balance...*\n\n"
+        "⚠️ *IMPORTANT:* This checks your TESTNET balance.\n"
+        "To activate a real plan, deposit on real Binance.\n\n"
+        "Minimum deposits for levels:\n"
+        "• Trader: 50 USDT (0.4% fee)\n"
+        "• Pro: 100 USDT (0.3% fee + premium)\n"
+        "• Elite: 500 USDT (0.3% fee + token reward)\n\n"
+        "🪙 *Token $CARCH:* Elite holders receive 0.05% of all bot commissions.",
+        parse_mode="Markdown"
+    )
+    try:
+        if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
+            await update.message.reply_text(
+                "⚠️ *Binance API keys not configured.*\n\n"
+                "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.\n"
+                "For testnet, also set BINANCE_TESTNET=true\n\n"
+                "💡 *Tip:* You can also upgrade by depositing real funds in Binance.",
+                parse_mode="Markdown"
+            )
+            return
+
+        engine = TradingEngine(testnet=True)
+        usdt_balance = engine.get_balance("USDT")
+        btc_balance = engine.get_balance("BTC")
+        if btc_balance >= 0.01 or usdt_balance >= 500:
+            level = 3
+            commission = 0.003
+            insignia = "👑"
+            name = "Elite"
+        elif usdt_balance >= 100:
+            level = 2
+            commission = 0.003
+            insignia = "🌟"
+            name = "Pro"
+        elif usdt_balance >= 50:
+            level = 1
+            commission = 0.004
+            insignia = "⚡"
+            name = "Trader"
+        else:
+            level = 0
+            commission = 0.005
+            insignia = "🔰"
+            name = "Explorer (trial)"
+        subscribers = load_subscribers()
+        subscribers[str(chat_id)] = {
+            "plan": "free",
+            "deposit_level": level,
+            "commission_rate": commission,
+            "insignia": insignia,
+            "active": True if level > 0 else True
+        }
+        save_subscribers(subscribers)
+        message = f"✅ *Level detected on TESTNET: {insignia} {name}*\n"
+        message += f"💰 Commission: {commission*100:.1f}%\n"
+        if level >= 3:
+            message += f"🪙 Token reward: 0.05% of all bot commissions in $CARCH\n"
+        message += f"📊 Detected balance (TESTNET): USDT ${usdt_balance:.2f}, BTC {btc_balance:.8f}\n\n"
+        if level == 0:
+            message += "Deposit ≥ 50 USDT to reach Trader level."
+        elif level == 1:
+            message += "Deposit ≥ 100 USDT to reach Pro level."
+        elif level == 2:
+            message += "Deposit ≥ 500 USDT to reach Elite level (with token reward)."
+        else:
+            message += "👑 You are ELITE! You receive 0.05% of all bot commissions in $CARCH tokens."
+        await update.message.reply_text(message, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error in activate: {e}")
+        await update.message.reply_text(
+            "⚠️ *Could not check balance.*\n\n"
+            "Please ensure Binance API keys are correctly configured in Railway.\n"
+            "For now, you are in Explorer mode (0.5% commission).\n\n"
+            "To upgrade, deposit funds in Binance and use our referral link.",
+            parse_mode="Markdown"
+        )
 
 @rate_limited()
 async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2146,7 +2185,6 @@ async def copy_whale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     trade_direction = "sell" if direction in ["transfer", "exchange_out"] else "buy"
     emoji = "🔴" if trade_direction == "sell" else "🟢"
 
-    # Guardar configuración local (sin Supabase)
     copy_config = {"active": True, "mode": "follow", "max_amount": 50, "slippage": 1.5}
     try:
         with open("copy_config.json", "r") as f:
@@ -2617,6 +2655,12 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         try:
             rule_id = int(args[1])
+            if str(rule_id) == chat_id:
+                await update.message.reply_text(
+                    "❌ That's your Telegram ID, not a rule ID.\n"
+                    "Use `/rule list` to see your rule IDs."
+                )
+                return
             rule = supabase.table("rules").select("*").eq("id", rule_id).eq("chat_id", chat_id).execute()
             if not rule.data:
                 await update.message.reply_text("❌ Rule not found.")
@@ -2635,6 +2679,12 @@ async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         try:
             rule_id = int(args[1])
+            if str(rule_id) == chat_id:
+                await update.message.reply_text(
+                    "❌ That's your Telegram ID, not a rule ID.\n"
+                    "Use `/rule list` to see your rule IDs."
+                )
+                return
             supabase.table("rules").delete().eq("id", rule_id).eq("chat_id", chat_id).execute()
             await update.message.reply_text(f"✅ Rule {rule_id} deleted.")
         except ValueError:
