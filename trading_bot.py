@@ -287,7 +287,6 @@ async def update_prices_from_websocket():
 
 def check_token_security(contract_address: str, chain: str = "ethereum") -> dict:
     """Verifica seguridad de un token usando GoPlusLabs API"""
-    # Si no hay API key o está deshabilitado, devolver riesgo 0
     if not GOPLUS_API_KEY or not ANTI_RUG_ENABLED:
         return {
             "is_honeypot": False,
@@ -298,8 +297,7 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
             "risk_score": 0,
             "warnings": ["⚠️ Anti-Rug disabled or no API key"]
         }
-    
-    # Validar dirección
+
     if not contract_address or len(contract_address) < 10:
         return {
             "is_honeypot": False,
@@ -310,8 +308,7 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
             "risk_score": 0,
             "warnings": ["⚠️ Invalid contract address"]
         }
-    
-    # Normalizar cadena (GoPlus espera: ethereum, bsc, polygon, arbitrum, avalanche)
+
     chain_map = {
         'eth': 'ethereum',
         'bsc': 'bsc',
@@ -320,15 +317,14 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
         'avalanche': 'avalanche'
     }
     chain = chain_map.get(chain, chain)
-    
+
     try:
         url = f"https://api.gopluslabs.io/api/v1/token_security/{chain}?contract_addresses={contract_address}"
         headers = {"X-API-Key": GOPLUS_API_KEY} if GOPLUS_API_KEY else {}
         logger.info(f"🔍 Verificando token {contract_address[:8]}... en {chain}")
         response = requests.get(url, headers=headers, timeout=10)
-        
+
         if response.status_code != 200:
-            logger.warning(f"GoPlusLabs HTTP {response.status_code}")
             return {
                 "is_honeypot": False,
                 "is_whitelist_only": False,
@@ -338,7 +334,7 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
                 "risk_score": 0,
                 "warnings": [f"⚠️ API error: {response.status_code}"]
             }
-        
+
         data = response.json()
         if data.get("code") != 1:
             return {
@@ -350,12 +346,10 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
                 "risk_score": 0,
                 "warnings": ["⚠️ API response error"]
             }
-        
+
         result = data.get("result", {})
-        # La clave es la dirección del contrato (puede estar en minúsculas)
         token_data = result.get(contract_address.lower(), {})
         if not token_data:
-            # Si no hay datos, el token no está en la base de GoPlus
             return {
                 "is_honeypot": False,
                 "is_whitelist_only": False,
@@ -365,15 +359,13 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
                 "risk_score": 0,
                 "warnings": ["⚠️ Token not verified by GoPlus"]
             }
-        
+
         is_honeypot = token_data.get("is_honeypot", False)
         is_whitelist_only = token_data.get("is_whitelist_only", False)
         can_sell = not is_honeypot and not is_whitelist_only
-        
-        # Algunas claves pueden ser diferentes según la cadena
         liquidity_locked = token_data.get("liquidity_locked", False)
         owner_renounced = token_data.get("owner_renounced", False)
-        
+
         risk_score = 0
         warnings = []
         if is_honeypot:
@@ -388,8 +380,7 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
         if not owner_renounced:
             risk_score += 10
             warnings.append("⚠️ Owner not renounced (can modify contract)")
-        
-        # Liquidez: puede estar en USD o en native
+
         liquidity = token_data.get("liquidity", 0)
         if isinstance(liquidity, str):
             try:
@@ -399,7 +390,7 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
         if liquidity and liquidity < 5000:
             risk_score += 10
             warnings.append("⚠️ Low liquidity (< $5000)")
-        
+
         return {
             "is_honeypot": is_honeypot,
             "is_whitelist_only": is_whitelist_only,
@@ -419,7 +410,6 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
             "owner_renounced": False,
             "risk_score": 0,
             "warnings": [f"⚠️ Error verifying token: {str(e)[:50]}"]
-        }
         }
 
 # ==================== IA PREDICTIVA AVANZADA ====================
