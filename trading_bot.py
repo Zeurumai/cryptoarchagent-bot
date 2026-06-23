@@ -2906,6 +2906,9 @@ def ping():
 
 @webhook_app.route('/dashboard')
 def dashboard():
+    auth_key = request.args.get('key')
+    if not auth_key or auth_key != DASHBOARD_API_KEY:
+        return "Acceso no autorizado", 401
     return render_template('dashboard.html', DASHBOARD_API_KEY=DASHBOARD_API_KEY)
 
 @webhook_app.route('/api/market_data')
