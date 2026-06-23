@@ -1341,7 +1341,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @rate_limited()
 async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /compare - Comparativa con la competencia"""
     text = """
 ⚔️ *CryptoArch Agent vs. The Giants*
 
@@ -1374,7 +1373,6 @@ Use /plan to check your level.
 
 *Choose wisely. Or don't. But you've been warned.* 🚀
 """
-    # Verificar si es un callback (botón) o un comando directo
     if update.callback_query:
         query = update.callback_query
         await query.answer()
