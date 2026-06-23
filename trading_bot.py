@@ -1534,13 +1534,68 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @rate_limited()
 async def newtokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /newtokens - Muestra tokens nuevos con análisis de seguridad"""
     tokens = get_recent_tokens(limit=10)
     if not tokens:
         await update.message.reply_text("No new tokens detected recently. Stay tuned!")
         return
-    msg = "🚀 *Latest New Tokens (24h)*\n\n"
+    
+    msg = "🚀 *Latest New Tokens (24h) - Con Análisis*\n\n"
+    
+    # Mapeo de cadenas para GoPlus (solo 'eth' necesita cambiarse a 'ethereum')
+    chain_map = {
+        'eth': 'ethereum',
+        'bsc': 'bsc',
+        'polygon': 'polygon',
+        'arbitrum': 'arbitrum',
+        'avalanche': 'avalanche'
+    }
+    
     for token in tokens[:10]:
-        msg += format_token_message(token) + "\n"
+        # Formato base del token
+        base_msg = format_token_message(token)
+        
+        # Obtener dirección y cadena
+        contract = token.get('address', '')
+        chain = token.get('chain', 'eth')
+        goplus_chain = chain_map.get(chain, chain)
+        
+        # Realizar análisis de seguridad si está habilitado
+        if contract and GOPLUS_API_KEY and ANTI_RUG_ENABLED:
+            try:
+                # Llamar a la función de análisis (definida en trading_bot.py)
+                security = check_token_security(contract, goplus_chain)
+                risk_score = security.get('risk_score', 0)
+                warnings = security.get('warnings', [])
+                is_honeypot = security.get('is_honeypot', False)
+                liquidity_locked = security.get('liquidity_locked', False)
+                can_sell = security.get('can_sell', True)
+                
+                # Agregar análisis al mensaje
+                if risk_score == 0 and not warnings:
+                    base_msg += "\n✅ *Seguridad:* Verificado (Bajo riesgo)"
+                else:
+                    base_msg += f"\n🛡️ *Risk Score:* {risk_score}/100"
+                    if risk_score > 30:
+                        base_msg += " ⚠️ ALTO RIESGO"
+                    if is_honeypot:
+                        base_msg += "\n   🚨 *HONEYPOT DETECTADO* (No se puede vender)"
+                    if not liquidity_locked:
+                        base_msg += "\n   ⚠️ Liquidez NO bloqueada (Riesgo de rug pull)"
+                    if not can_sell:
+                        base_msg += "\n   🚫 No se puede vender (Whitelist/Honeypot)"
+                    if warnings:
+                        # Mostrar máximo 2 advertencias para no saturar
+                        base_msg += f"\n   ⚠️ {', '.join(warnings[:2])}"
+            except Exception as e:
+                logger.error(f"Error analizando token {contract}: {e}")
+                base_msg += "\n⚠️ *Seguridad:* No se pudo verificar"
+        else:
+            base_msg += "\n⚪ *Seguridad:* API no configurada (GOPLUS_API_KEY)"
+        
+        msg += base_msg + "\n\n"
+    
+    # Si el mensaje es muy largo, Telegram lo trunca, pero enviamos igual
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 @rate_limited()
