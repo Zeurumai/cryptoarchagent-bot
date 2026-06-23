@@ -1730,7 +1730,19 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Comando /balance - Muestra saldo en Binance"""
     chat_id = update.effective_chat.id
     try:
-        if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
+        # Forzar recarga de variables de entorno
+        load_dotenv(override=True)
+        
+        api_key = os.getenv("BINANCE_API_KEY")
+        secret_key = os.getenv("BINANCE_SECRET_KEY")
+        testnet = os.getenv("BINANCE_TESTNET", "false").lower() == "true"
+
+        # LOGS para depuración (se verán en Railway)
+        logger.info(f"BINANCE_API_KEY: {'*' * len(api_key) if api_key else 'NOT SET'}")
+        logger.info(f"BINANCE_SECRET_KEY: {'*' * len(secret_key) if secret_key else 'NOT SET'}")
+        logger.info(f"BINANCE_TESTNET: {testnet}")
+
+        if not api_key or not secret_key:
             await update.message.reply_text(
                 "⚠️ Binance API keys not configured.\n\n"
                 "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.\n"
@@ -1739,9 +1751,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        testnet = os.getenv("BINANCE_TESTNET", "false").lower() == "true"
         engine = TradingEngine(testnet=testnet)
-        
         usdt_balance = engine.get_balance("USDT")
         btc_balance = engine.get_balance("BTC")
         
@@ -1766,7 +1776,6 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Verify Binance API keys in Railway.\n"
             "Other features work without Binance keys."
         )
-
 @rate_limited()
 async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
