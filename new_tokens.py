@@ -41,43 +41,126 @@ def _save_local_tokens(tokens):
     with open(LOCAL_TOKENS_FILE, "w") as f:
         json.dump(tokens, f, indent=2, default=str)
 
+def _fetch_geckoterminal(chain, limit=20):
+    """Obtiene tokens de GeckoTerminal para una cadena específica"""
+    tokens = []
+    try:
+        url = f"https://api.geckoterminal.com/api/v2/networks/{chain}/tokens?sort=created_at_desc&page[limit]={limit}"
+        headers = {"Accept": "application/json"}
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if 'data' in data:
+                for item in data['data']:
+                    attrs = item.get('attributes', {})
+                    # Solo tokens con dirección válida
+                    address = attrs.get('address', '')
+                    if not address or len(address) < 10:
+                        continue
+                    
+                    token = {
+                        'name': attrs.get('name', 'Unknown'),
+                        'symbol': attrs.get('symbol', '???'),
+                        'address': address,
+                        'chain': chain,
+                        'price_usd': attrs.get('price_usd', '0'),
+                        'volume_24h': attrs.get('volume_usd', {}).get('h24', '0'),
+                        'market_cap': attrs.get('market_cap_usd', '0'),
+                        'created_at': attrs.get('created_at', ''),
+                        'buy_tax': attrs.get('buy_tax', '0'),
+                        'sell_tax': attrs.get('sell_tax', '0'),
+                        'holder_count': attrs.get('holder_count', '0')
+                    }
+                    tokens.append(token)
+    except Exception as e:
+        logger.error(f"Error fetching from GeckoTerminal {chain}: {e}")
+    return tokens
+
+def _fetch_dexscreener(chain, limit=10):
+    """Fallback: Obtiene pares recientes de DexScreener para una cadena"""
+    tokens = []
+    try:
+        # Mapeo de nombres de cadena para DexScreener
+        chain_map = {
+            'eth': 'ethereum',
+            'bsc': 'bsc',
+            'polygon': 'polygon',
+            'arbitrum': 'arbitrum',
+            'avalanche': 'avalanche'
+        }
+        chain_name = chain_map.get(chain, chain)
+        url = f"https://api.dexscreener.com/latest/dex/search?q={chain_name}"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if 'pairs' in data:
+                for pair in data['pairs'][:limit]:
+                    base = pair.get('baseToken', {})
+                    quote = pair.get('quoteToken', {})
+                    # Solo tokens con dirección válida y que sean recientes
+                    if not base.get('address'):
+                        continue
+                    
+                    # Calcular antigüedad aproximada (los pares recientes tienen menos de 24h)
+                    created = pair.get('pairCreatedAt', 0)
+                    if created:
+                        created_dt = datetime.fromtimestamp(created / 1000)
+                        age_hours = (datetime.now() - created_dt).total_seconds() / 3600
+                        if age_hours > 48:
+                            continue
+                    else:
+                        continue
+                    
+                    token = {
+                        'name': base.get('name', 'Unknown'),
+                        'symbol': base.get('symbol', '???'),
+                        'address': base.get('address', ''),
+                        'chain': chain,
+                        'price_usd': pair.get('priceUsd', '0'),
+                        'volume_24h': pair.get('volume', {}).get('h24', '0'),
+                        'market_cap': pair.get('marketCap', '0'),
+                        'created_at': created_dt.isoformat() if created else '',
+                        'buy_tax': '0',
+                        'sell_tax': '0',
+                        'holder_count': '0'
+                    }
+                    tokens.append(token)
+    except Exception as e:
+        logger.error(f"Error fetching from DexScreener {chain}: {e}")
+    return tokens
+
 def get_recent_tokens(limit=10):
+    """Obtiene tokens reales recién creados de múltiples cadenas"""
     all_tokens = []
     chains = ['eth', 'bsc', 'polygon', 'arbitrum', 'avalanche']
     
+    # Primero intentar GeckoTerminal (más completo)
     for chain in chains:
-        try:
-            url = f"https://api.geckoterminal.com/api/v2/networks/{chain}/tokens?sort=created_at_desc&page[limit]=20"
-            headers = {"Accept": "application/json"}
-            response = requests.get(url, headers=headers, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if 'data' in data:
-                    for item in data['data']:
-                        attrs = item.get('attributes', {})
-                        token = {
-                            'name': attrs.get('name', 'Unknown'),
-                            'symbol': attrs.get('symbol', '???'),
-                            'address': attrs.get('address', ''),
-                            'chain': chain,
-                            'price_usd': attrs.get('price_usd', '0'),
-                            'volume_24h': attrs.get('volume_usd', {}).get('h24', '0'),
-                            'market_cap': attrs.get('market_cap_usd', '0'),
-                            'created_at': attrs.get('created_at', ''),
-                            'buy_tax': attrs.get('buy_tax', '0'),
-                            'sell_tax': attrs.get('sell_tax', '0'),
-                            'holder_count': attrs.get('holder_count', '0')
-                        }
-                        if token['price_usd'] and token['price_usd'] != '0' and token['address']:
-                            all_tokens.append(token)
-        except Exception as e:
-            logger.error(f"Error fetching tokens from {chain}: {e}")
+        tokens = _fetch_geckoterminal(chain, limit=15)
+        if tokens:
+            all_tokens.extend(tokens)
+        else:
+            # Fallback a DexScreener
+            tokens = _fetch_dexscreener(chain, limit=5)
+            all_tokens.extend(tokens)
     
-    all_tokens.sort(key=lambda x: x['created_at'], reverse=True)
-    return all_tokens[:limit]
+    # Eliminar duplicados por dirección
+    seen = set()
+    unique_tokens = []
+    for t in all_tokens:
+        addr = t.get('address', '')
+        if addr and addr not in seen:
+            seen.add(addr)
+            unique_tokens.append(t)
+    
+    # Ordenar por fecha de creación (más nuevos primero)
+    unique_tokens.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    return unique_tokens[:limit]
 
 def scan_new_pools(limit=5, min_liquidity=5000):
+    """Escanea pools nuevos para alertas automáticas"""
     tokens = get_recent_tokens(limit=limit * 2)
     filtered = []
     for t in tokens:
