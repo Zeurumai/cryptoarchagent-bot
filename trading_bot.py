@@ -88,7 +88,7 @@ PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))
 # ==================== ANTI-MEV / ANTI-RUG ====================
 GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")
 ANTI_MEV_ENABLED = os.getenv("ANTI_MEV_ENABLED", "true").lower() == "true"
-ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true")
+ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"   # ✅ Corregido
 
 # ==================== IA PREDICTIVA ====================
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
@@ -594,7 +594,7 @@ def predict_with_ai_advanced(alert: dict, all_alerts: list = None) -> dict:
         "emoji": emoji,
         "details": detail,
         "factors": factors
-   }
+    }
 
 # ==================== USER DATA ====================
 USER_DATA = {}
@@ -969,6 +969,7 @@ def run_scheduler():
             time.sleep(5)
 
 # ==================== HANDLERS DE COMANDOS ====================
+@rate_limited()
 async def accept_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     terms = load_terms()
@@ -1819,9 +1820,8 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"To change, use:\n"
             f"/lang en  -> English\n"
             f"/lang es  -> Español"
-        )
-
-async def activate_from_callback(query, chat_id):
+            )
+        async def activate_from_callback(query, chat_id):
     await activate(query.message, None)
 
 async def show_coin_info(query, symbol):
