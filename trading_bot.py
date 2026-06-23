@@ -1341,16 +1341,8 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @rate_limited()
 async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if hasattr(update, 'callback_query'):
-        query = update.callback_query
-        await query.answer()
-        chat_id = query.message.chat.id
-        edit_mode = True
-    else:
-        chat_id = update.effective_chat.id
-        edit_mode = False
-
-    logger.info(f"📊 /compare ejecutado por {chat_id}")
+    """Comando /compare - Comparativa con la competencia"""
+    chat_id = update.effective_chat.id
     text = """
 ⚔️ *CryptoArch Agent vs. The Giants*
 
@@ -1383,35 +1375,47 @@ Use /plan to check your level.
 
 *Choose wisely. Or don't. But you've been warned.* 🚀
 """
-    if edit_mode:
+    # Si se llama desde un callback, edita el mensaje; si no, envía uno nuevo
+    if hasattr(update, 'callback_query'):
+        query = update.callback_query
+        await query.answer()
         await query.edit_message_text(text, parse_mode="Markdown")
     else:
         await update.message.reply_text(text, parse_mode="Markdown")
 
 @rate_limited()
 async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if hasattr(update, 'callback_query'):
-        query = update.callback_query
-        await query.answer()
-        edit_mode = True
-    else:
-        edit_mode = False
-
+    """Comando /predict - Predicción IA basada en ballenas"""
+    chat_id = update.effective_chat.id
+    
     if not AI_MODEL_ENABLED:
         msg = "⚠️ *AI Predictor disabled*\n\nEnable with `AI_MODEL_ENABLED=true` in Railway."
-        if edit_mode:
-            await query.edit_message_text(msg, parse_mode="Markdown")
+        if hasattr(update, 'callback_query'):
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
         else:
             await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
+    # Si no hay datos de ballenas, intentamos obtenerlos ahora
     if not context.user_data.get("last_whale_alerts"):
-        msg = "🧠 *AI Prediction*\n\nNo recent whale data available.\nRun `/whale` first to fetch whale movements."
-        if edit_mode:
-            await query.edit_message_text(msg, parse_mode="Markdown")
-        else:
-            await update.message.reply_text(msg, parse_mode="Markdown")
-        return
+        await update.message.reply_text("🐋 *Fetching whale movements first...*", parse_mode="Markdown")
+        try:
+            # Llamamos a la función de whale para llenar el contexto
+            btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
+            eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
+            sol_alerts = await asyncio.to_thread(obtener_alertas_solana, 10000, 3)
+            matic_alerts = await asyncio.to_thread(obtener_alertas_polygon, 5000, 3)
+            arb_alerts = await asyncio.to_thread(obtener_alertas_arbitrum, 5000, 3)
+            all_alerts = btc_alerts + eth_alerts + sol_alerts + matic_alerts + arb_alerts
+            if not all_alerts:
+                await update.message.reply_text("🐋 No whale movements detected right now. Try again later.")
+                return
+            context.user_data["last_whale_alerts"] = all_alerts
+        except Exception as e:
+            logger.error(f"Error fetching whales for predict: {e}")
+            await update.message.reply_text("⚠️ Could not fetch whale data. Please try /whale first.")
+            return
 
     try:
         alert = context.user_data["last_whale_alerts"][0]
@@ -1437,16 +1441,17 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "\n\n_Based on recent whale activity and multi-factor analysis._\n"
         msg += "⚠️ _Not financial advice._"
 
-        if edit_mode:
-            await query.edit_message_text(msg, parse_mode="Markdown")
+        if hasattr(update, 'callback_query'):
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
         else:
             await update.message.reply_text(msg, parse_mode="Markdown")
-
     except Exception as e:
         logger.error(f"Error in predict: {e}")
         error_msg = f"⚠️ *AI Prediction temporarily unavailable*\n\nError: {str(e)}"
-        if edit_mode:
-            await query.edit_message_text(error_msg, parse_mode="Markdown")
+        if hasattr(update, 'callback_query'):
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(error_msg, parse_mode="Markdown")
         else:
             await update.message.reply_text(error_msg, parse_mode="Markdown")
 
@@ -1635,12 +1640,15 @@ async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @rate_limited()
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /balance - Muestra saldo en testnet"""
+    chat_id = update.effective_chat.id
     try:
         if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
             await update.message.reply_text(
                 "⚠️ *Binance API keys not configured.*\n\n"
                 "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.\n"
-                "For testnet, also set BINANCE_TESTNET=true",
+                "For testnet, also set BINANCE_TESTNET=true\n\n"
+                "💡 *Tip:* You can still use all other features (whales, AI, alerts, etc.) without Binance keys.",
                 parse_mode="Markdown"
             )
             return
@@ -1648,11 +1656,33 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         engine = TradingEngine(testnet=True)
         usdt_balance = engine.get_balance("USDT")
         btc_balance = engine.get_balance("BTC")
-        message = f"💰 *Testnet Balance*\nUSDT: ${usdt_balance:.2f}\nBTC: {btc_balance:.8f}\n\n⚠️ This is TESTNET balance (fake money)."
+        
+        if usdt_balance is None or btc_balance is None:
+            await update.message.reply_text(
+                "⚠️ *Could not connect to Binance Testnet.*\n\n"
+                "Please check your API keys and that you have testnet funds.\n"
+                "Visit https://testnet.binance.vision/ to get testnet tokens.",
+                parse_mode="Markdown"
+            )
+            return
+
+        message = (
+            f"💰 *Testnet Balance*\n\n"
+            f"USDT: ${usdt_balance:.2f}\n"
+            f"BTC: {btc_balance:.8f}\n\n"
+            f"⚠️ This is TESTNET balance (fake money).\n"
+            f"To trade real funds, deposit on real Binance and use /activate."
+        )
         await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
-        logger.error(f"Error in balance: {e}")
-        await update.message.reply_text("❌ Internal error. Try again later.", parse_mode="Markdown")
+        logger.error(f"Error en /balance: {e}")
+        logger.error(traceback.format_exc())
+        await update.message.reply_text(
+            "❌ *Error checking balance.*\n\n"
+            "Please ensure Binance API keys are correctly configured in Railway.\n"
+            "For now, you can use all other features without Binance keys.",
+            parse_mode="Markdown"
+        )
 
 @rate_limited()
 async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3087,6 +3117,7 @@ async def main():
     application.add_handler(CommandHandler("force_premium", force_premium))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_text))
+    application.add_handler(CommandHandler("alerts", alerts_command))
     
     await application.initialize()
     await application.start()
