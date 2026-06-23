@@ -1727,7 +1727,7 @@ async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @rate_limited()
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /balance - Muestra saldo en testnet"""
+    """Comando /balance - Muestra saldo en testnet o real"""
     chat_id = update.effective_chat.id
     try:
         if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
@@ -1740,25 +1740,24 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        engine = TradingEngine(testnet=True)
+        engine = TradingEngine(testnet=os.getenv("BINANCE_TESTNET", "false").lower() == "true")
         usdt_balance = engine.get_balance("USDT")
         btc_balance = engine.get_balance("BTC")
         
         if usdt_balance is None or btc_balance is None:
             await update.message.reply_text(
-                "⚠️ Could not connect to Binance Testnet.\n\n"
-                "Please check your API keys and that you have testnet funds.\n"
-                "Visit https://testnet.binance.vision/ to get testnet tokens.",
+                "⚠️ Could not connect to Binance.\n\n"
+                "Please check your API keys and permissions.\n"
+                "Make sure 'Enable Reading' is enabled in API restrictions.",
                 parse_mode="Markdown"
             )
             return
 
         message = (
-            f"💰 *Testnet Balance*\n\n"
+            f"💰 *Balance*\n\n"
             f"USDT: ${usdt_balance:.2f}\n"
             f"BTC: {btc_balance:.8f}\n\n"
-            f"⚠️ This is TESTNET balance (fake money).\n"
-            f"To trade real funds, deposit on real Binance and use /activate."
+            f"⚠️ This is your REAL balance on Binance."
         )
         await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
