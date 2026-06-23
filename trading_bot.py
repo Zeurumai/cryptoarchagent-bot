@@ -1727,7 +1727,7 @@ async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @rate_limited()
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /balance - Muestra saldo en testnet o real"""
+    """Comando /balance - Muestra saldo en Binance"""
     chat_id = update.effective_chat.id
     try:
         if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
@@ -1735,39 +1735,36 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "⚠️ Binance API keys not configured.\n\n"
                 "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.\n"
                 "For testnet, also set BINANCE_TESTNET=true\n\n"
-                "💡 Tip: You can still use all other features (whales, AI, alerts, etc.) without Binance keys.",
-                parse_mode="Markdown"
+                "💡 You can still use all other features without Binance keys."
             )
             return
 
-        engine = TradingEngine(testnet=os.getenv("BINANCE_TESTNET", "false").lower() == "true")
+        testnet = os.getenv("BINANCE_TESTNET", "false").lower() == "true"
+        engine = TradingEngine(testnet=testnet)
+        
         usdt_balance = engine.get_balance("USDT")
         btc_balance = engine.get_balance("BTC")
         
         if usdt_balance is None or btc_balance is None:
             await update.message.reply_text(
                 "⚠️ Could not connect to Binance.\n\n"
-                "Please check your API keys and permissions.\n"
-                "Make sure 'Enable Reading' is enabled in API restrictions.",
-                parse_mode="Markdown"
+                "Check your API keys and permissions.\n"
+                "Enable 'Reading' in API restrictions."
             )
             return
 
-        message = (
-            f"💰 *Balance*\n\n"
+        mode = "TESTNET" if testnet else "REAL"
+        await update.message.reply_text(
+            f"💰 Balance ({mode})\n\n"
             f"USDT: ${usdt_balance:.2f}\n"
-            f"BTC: {btc_balance:.8f}\n\n"
-            f"⚠️ This is your REAL balance on Binance."
+            f"BTC: {btc_balance:.8f}"
         )
-        await update.message.reply_text(message, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error en /balance: {e}")
-        logger.error(traceback.format_exc())
         await update.message.reply_text(
             "❌ Error checking balance.\n\n"
-            "Please ensure Binance API keys are correctly configured in Railway.\n"
-            "For now, you can use all other features without Binance keys.",
-            parse_mode="Markdown"
+            "Verify Binance API keys in Railway.\n"
+            "Other features work without Binance keys."
         )
 
 @rate_limited()
