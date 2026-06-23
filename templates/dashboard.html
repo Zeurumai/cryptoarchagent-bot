@@ -1,497 +1,520 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CryptoArch Agent · Terminal</title>
-    
-    <!-- Fonts & Icons -->
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <style>
-        /* ===== RESET & BASE ===== */
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Rajdhani', sans-serif;
-            background: #0A0B10;
-            color: #e0e0e0;
-            min-height: 100vh;
-            overflow-x: hidden;
-            position: relative;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CryptoArch Agent · Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0B1120;
+      color: #F1F5F9;
+      padding: 1.5rem;
+    }
+    .container { max-width: 1400px; margin: 0 auto; }
 
-        /* ===== FONDO ANIMADO ===== */
-        .bg-animation {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 0;
-            background: 
-                radial-gradient(circle at 20% 50%, rgba(0, 200, 255, 0.08) 0%, transparent 50%),
-                radial-gradient(circle at 80% 80%, rgba(138, 43, 226, 0.08) 0%, transparent 50%),
-                radial-gradient(circle at 40% 20%, rgba(0, 255, 200, 0.05) 0%, transparent 50%),
-                #0A0B10;
-        }
+    /* ===== HEADER ===== */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #1E293B;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .header h1 {
+      font-size: 1.8rem;
+      font-weight: 800;
+      background: linear-gradient(to right, #F8FAFC, #94A3B8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header .status {
+      background: #064E3B;
+      color: #6EE7B7;
+      padding: 0.3rem 1rem;
+      border-radius: 40px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border: 1px solid #065F46;
+    }
+    .header .last-update { color: #64748B; font-size: 0.8rem; }
 
-        /* ===== CONTENEDOR PRINCIPAL ===== */
-        .container {
-            position: relative;
-            z-index: 1;
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
+    .lang-selector {
+      display: flex;
+      gap: 0.3rem;
+      background: #1E293B;
+      padding: 0.2rem;
+      border-radius: 40px;
+      border: 1px solid #334155;
+    }
+    .lang-btn {
+      background: transparent;
+      border: none;
+      color: #94A3B8;
+      font-weight: 600;
+      font-size: 0.7rem;
+      padding: 0.2rem 0.9rem;
+      border-radius: 30px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+    }
+    .lang-btn.active {
+      background: #2563EB;
+      color: white;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+    }
+    .lang-btn:hover:not(.active) { color: #F8FAFC; }
+    .btn-refresh {
+      background: #2563EB;
+      border: none;
+      color: white;
+      padding: 0.4rem 1.2rem;
+      border-radius: 40px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 0.85rem;
+    }
+    .btn-refresh:hover { background: #3B82F6; transform: scale(1.02); }
 
-        /* ===== HEADER ===== */
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 24px;
-            background: rgba(10, 11, 16, 0.7);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(0, 200, 255, 0.2);
-            border-radius: 16px;
-            margin-bottom: 30px;
-            box-shadow: 0 0 30px rgba(0, 200, 255, 0.05);
-        }
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .logo-icon {
-            font-size: 28px;
-            color: #00e5ff;
-            text-shadow: 0 0 20px rgba(0, 229, 255, 0.3);
-        }
-        .logo-text {
-            font-family: 'Orbitron', monospace;
-            font-weight: 700;
-            font-size: 20px;
-            background: linear-gradient(135deg, #00e5ff, #a855f7);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .user-badge {
-            font-family: 'Orbitron', monospace;
-            font-size: 12px;
-            color: #00e5ff;
-            background: rgba(0, 229, 255, 0.1);
-            padding: 6px 14px;
-            border-radius: 20px;
-            border: 1px solid rgba(0, 229, 255, 0.2);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .user-badge i { font-size: 14px; }
+    /* ===== TARJETAS DE PRECIOS ===== */
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .card-price {
+      background: #1E293B;
+      border-radius: 1rem;
+      padding: 1rem;
+      border: 1px solid #334155;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .card-price:hover { border-color: #475569; transform: translateY(-2px); }
+    .card-price .symbol { font-weight: 700; color: #94A3B8; font-size: 0.8rem; }
+    .card-price .price { font-weight: 800; font-size: 1.4rem; color: #F8FAFC; margin: 0.2rem 0; }
+    .card-price .change { font-weight: 600; font-size: 0.85rem; }
+    .card-price .change.up { color: #34D399; }
+    .card-price .change.down { color: #EF4444; }
 
-        /* ===== TARJETAS ===== */
-        .grid-cards {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
-            margin-bottom: 30px;
-        }
-        @media (max-width: 768px) { .grid-cards { grid-template-columns: 1fr; } }
+    /* ===== FEAR & GREED ===== */
+    .fg-box {
+      background: #1E293B;
+      border-radius: 1rem;
+      padding: 1rem;
+      border: 1px solid #334155;
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .fg-box .value { font-size: 2.2rem; font-weight: 800; }
+    .fg-box .label { color: #94A3B8; font-weight: 600; font-size: 0.9rem; }
 
-        .card {
-            background: rgba(15, 17, 26, 0.7);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(0, 200, 255, 0.15);
-            border-radius: 20px;
-            padding: 24px 28px;
-            transition: all 0.4s ease;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-        }
-        .card::before {
-            content: '';
-            position: absolute;
-            top: -2px;
-            left: -2px;
-            right: -2px;
-            bottom: -2px;
-            background: linear-gradient(135deg, rgba(0, 200, 255, 0.2), rgba(168, 85, 247, 0.2));
-            border-radius: 20px;
-            z-index: -1;
-            opacity: 0;
-            transition: opacity 0.4s ease;
-        }
-        .card:hover::before { opacity: 1; }
-        .card:hover {
-            transform: translateY(-4px);
-            border-color: rgba(0, 200, 255, 0.4);
-            box-shadow: 0 12px 48px rgba(0, 200, 255, 0.1);
-        }
+    /* ===== GRID ===== */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .card {
+      background: #1E293B;
+      border-radius: 1rem;
+      padding: 1.2rem;
+      border: 1px solid #334155;
+    }
+    .card h3 { margin-bottom: 0.8rem; color: #F8FAFC; font-weight: 700; font-size: 1.1rem; }
+    .card h3 i { margin-right: 0.4rem; }
 
-        .card-title {
-            font-family: 'Orbitron', monospace;
-            font-size: 14px;
-            font-weight: 600;
-            color: #00e5ff;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .card-title i { font-size: 18px; }
-        .card-title .glow { text-shadow: 0 0 20px rgba(0, 229, 255, 0.3); }
+    /* ===== WHALES ===== */
+    .whale-item {
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #1E293B;
+      display: flex;
+      justify-content: space-between;
+      color: #94A3B8;
+      font-size: 0.9rem;
+    }
+    .whale-item:last-child { border: none; }
+    .whale-item .amount { color: #F8FAFC; font-weight: 600; }
+    .whale-item .type.buy { color: #34D399; }
+    .whale-item .type.sell { color: #EF4444; }
+    .whale-item .type.transfer { color: #F59E0B; }
 
-        /* ===== ESTADÍSTICAS ===== */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 16px;
-        }
-        .stat-item {
-            text-align: center;
-            padding: 12px 8px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .stat-label {
-            font-size: 12px;
-            font-weight: 500;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        .stat-value {
-            font-family: 'Orbitron', monospace;
-            font-size: 28px;
-            font-weight: 700;
-            margin-top: 4px;
-        }
-        .stat-value.blue { color: #00e5ff; text-shadow: 0 0 30px rgba(0, 229, 255, 0.2); }
-        .stat-value.green { color: #4ade80; text-shadow: 0 0 30px rgba(74, 222, 128, 0.2); }
-        .stat-value.yellow { color: #facc15; text-shadow: 0 0 30px rgba(250, 204, 21, 0.2); }
+    /* ===== TRADES ===== */
+    .trade-list {
+      list-style: none;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+    .trade-list li {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.4rem 0;
+      border-bottom: 1px solid #1E293B;
+      font-size: 0.85rem;
+      color: #CBD5E1;
+      align-items: center;
+    }
+    .trade-list li .symbol { font-weight: 700; }
+    .trade-list li .action.buy { color: #34D399; }
+    .trade-list li .action.sell { color: #EF4444; }
+    .trade-list li .pnl.positive { color: #34D399; }
+    .trade-list li .pnl.negative { color: #EF4444; }
 
-        /* ===== MODO LEGENDARIO ===== */
-        .legendary-box {
-            margin-top: 16px;
-            padding: 14px 18px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 12px;
-            border-left: 3px solid #a855f7;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .legendary-label {
-            font-weight: 500;
-            color: #aaa;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .legendary-status {
-            font-family: 'Orbitron', monospace;
-            font-weight: 700;
-            color: #a855f7;
-            text-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
-        }
+    /* ===== ESTADÍSTICAS ===== */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.8rem;
+      margin-bottom: 1rem;
+    }
+    .stat-item {
+      background: #0F172A;
+      border-radius: 0.8rem;
+      padding: 0.8rem;
+      text-align: center;
+      border: 1px solid #334155;
+    }
+    .stat-item .number { font-size: 1.5rem; font-weight: 800; color: #F8FAFC; }
+    .stat-item .label { color: #94A3B8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
 
-        /* ===== CONTROLES ===== */
-        .control-group {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        .control-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 14px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            transition: 0.3s;
-        }
-        .control-item:hover { border-color: rgba(0, 200, 255, 0.2); }
-        .control-label {
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .control-label i { font-size: 16px; color: #00e5ff; }
-        .control-label span { font-size: 14px; }
+    /* ===== LOADING / ERROR ===== */
+    .loading { color: #64748B; text-align: center; padding: 1.5rem; }
+    .error { color: #EF4444; text-align: center; padding: 1rem; border: 1px solid #EF4444; border-radius: 1rem; background: #1E293B; }
 
-        /* ===== BOTÓN TOGGLE FUTURISTA ===== */
-        .toggle-btn {
-            font-family: 'Orbitron', monospace;
-            font-size: 11px;
-            font-weight: 600;
-            padding: 6px 16px;
-            border-radius: 20px;
-            border: none;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        .toggle-btn.active {
-            background: rgba(0, 229, 255, 0.15);
-            color: #00e5ff;
-            border: 1px solid rgba(0, 229, 255, 0.4);
-            box-shadow: 0 0 20px rgba(0, 229, 255, 0.1);
-        }
-        .toggle-btn.active:hover {
-            box-shadow: 0 0 40px rgba(0, 229, 255, 0.2);
-            transform: scale(1.02);
-        }
-        .toggle-btn.inactive {
-            background: rgba(255, 0, 0, 0.08);
-            color: #f87171;
-            border: 1px solid rgba(255, 0, 0, 0.2);
-        }
-        .toggle-btn.inactive:hover {
-            box-shadow: 0 0 30px rgba(255, 0, 0, 0.1);
-            transform: scale(1.02);
-        }
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 768px) {
+      .grid-2 { grid-template-columns: 1fr; }
+      .header { flex-direction: column; align-items: stretch; text-align: center; }
+      .header-left { justify-content: center; }
+      .card-price .price { font-size: 1.1rem; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 480px) {
+      .grid-4 { grid-template-columns: 1fr 1fr; }
+      .stats-grid { grid-template-columns: 1fr; }
+    }
 
-        /* ===== TABLA ===== */
-        .table-wrap {
-            overflow-x: auto;
-            margin-top: 12px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-        }
-        th {
-            text-align: left;
-            padding: 12px 16px;
-            font-family: 'Orbitron', monospace;
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #888;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
-        td {
-            padding: 12px 16px;
-            border-bottom: 1px solid rgba(255,255,255,0.03);
-            color: #ccc;
-        }
-        tr:hover td { background: rgba(0, 200, 255, 0.03); }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0F172A; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
 
-        /* ===== RESPONSIVE ===== */
-        @media (max-width: 480px) {
-            .stats-grid { grid-template-columns: 1fr; }
-            .header { flex-direction: column; gap: 12px; text-align: center; }
-            .logo-text { font-size: 16px; }
-        }
-    </style>
+    /* ===== BILINGÜE ===== */
+    .lang-es, .lang-en { display: none; }
+    .lang-es.active, .lang-en.active { display: block; }
+    .lang-es.inline, .lang-en.inline { display: inline; }
+    .lang-es.inline.active, .lang-en.inline.active { display: inline; }
+    .lang-es.flex, .lang-en.flex { display: none; }
+    .lang-es.flex.active, .lang-en.flex.active { display: flex; }
+    .lang-es.grid, .lang-en.grid { display: none; }
+    .lang-es.grid.active, .lang-en.grid.active { display: grid; }
+  </style>
 </head>
 <body>
-    <!-- Fondo animado -->
-    <div class="bg-animation"></div>
 
-    <!-- Contenedor -->
-    <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <div class="logo">
-                <i class="fas fa-microchip logo-icon"></i>
-                <span class="logo-text">CryptoArch Agent</span>
-            </div>
-            <div class="user-badge">
-                <i class="fas fa-user-astronaut"></i>
-                <span id="chat-id-display">Cargando...</span>
-            </div>
-        </header>
+<div class="container">
 
-        <!-- Grid Principal -->
-        <div class="grid-cards">
-            <!-- Tarjeta Estadísticas -->
-            <div class="card">
-                <div class="card-title">
-                    <i class="fas fa-chart-pie glow"></i>
-                    <span class="glow">ESTADÍSTICAS DE GUERRA</span>
-                </div>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <div class="stat-label">Operaciones</div>
-                        <div class="stat-value blue" id="total-trades">0</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Win Rate</div>
-                        <div class="stat-value green" id="win-rate">0%</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">PnL</div>
-                        <div class="stat-value yellow" id="pnl">$0.00</div>
-                    </div>
-                </div>
-                <div class="legendary-box">
-                    <span class="legendary-label">
-                        <i class="fas fa-crown" style="color:#a855f7;"></i> Modo Legendario
-                    </span>
-                    <span class="legendary-status" id="legendary-mode">🔒 Bloqueado</span>
-                </div>
-            </div>
-
-            <!-- Tarjeta Controles -->
-            <div class="card">
-                <div class="card-title">
-                    <i class="fas fa-sliders-h glow"></i>
-                    <span class="glow">CONTROL DE ARMAS</span>
-                </div>
-                <div class="control-group">
-                    <div class="control-item">
-                        <span class="control-label">
-                            <i class="fas fa-crosshairs"></i>
-                            <span>Sniper X</span>
-                        </span>
-                        <button id="sniper-toggle" class="toggle-btn inactive">Inactivo</button>
-                    </div>
-                    <div class="control-item">
-                        <span class="control-label">
-                            <i class="fas fa-whale"></i>
-                            <span>Copy Trading</span>
-                        </span>
-                        <button id="copy-toggle" class="toggle-btn inactive">Inactivo</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Tarjeta Historial -->
-        <div class="card" style="margin-top: 20px;">
-            <div class="card-title">
-                <i class="fas fa-history glow"></i>
-                <span class="glow">HISTORIAL DE OPERACIONES</span>
-            </div>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Activo</th>
-                            <th>Tipo</th>
-                            <th>Cantidad</th>
-                            <th>Precio</th>
-                            <th>Resultado</th>
-                        </tr>
-                    </thead>
-                    <tbody id="trades-table">
-                        <tr><td colspan="6" style="text-align:center; padding:20px; color:#666;">No hay operaciones registradas</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
+  <!-- ===== HEADER ===== -->
+  <div class="header">
+    <div class="header-left">
+      <h1>📊 CryptoArch · Dashboard</h1>
+      <span class="status"><i class="fas fa-circle" style="color:#34D399; font-size:0.5rem; margin-right:0.3rem;"></i> <span class="lang-es active">En vivo</span><span class="lang-en">Live</span></span>
+      <span class="last-update" id="lastUpdate"><span class="lang-es active">Cargando...</span><span class="lang-en">Loading...</span></span>
     </div>
+    <div style="display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap;">
+      <div class="lang-selector">
+        <button class="lang-btn active" data-lang="es">ES</button>
+        <button class="lang-btn" data-lang="en">EN</button>
+      </div>
+      <button class="btn-refresh" onclick="fetchData()"><i class="fas fa-sync-alt"></i> <span class="lang-es active">Actualizar</span><span class="lang-en">Refresh</span></button>
+    </div>
+  </div>
 
-    <script>
-        const chatId = "8355456581";
+  <!-- ===== PRECIOS ===== -->
+  <div class="grid-4" id="pricesContainer">
+    <div class="loading"><span class="lang-es active">Cargando precios...</span><span class="lang-en">Loading prices...</span></div>
+  </div>
 
-        // ==================== CARGAR DATOS ====================
-        async function loadStats() {
-            try {
-                const res = await fetch(`/api/stats/${chatId}`);
-                const data = await res.json();
-                document.getElementById('total-trades').textContent = data.total_trades || 0;
-                document.getElementById('win-rate').textContent = (data.win_rate || 0) + '%';
-                document.getElementById('pnl').textContent = '$' + (data.pnl || 0).toFixed(2);
-                document.getElementById('legendary-mode').textContent = data.legendary_mode ? '👑 Activado' : '🔒 Bloqueado';
-                document.getElementById('chat-id-display').textContent = chatId;
-            } catch(e) {
-                console.error('Error loading stats:', e);
-            }
+  <!-- ===== FEAR & GREED ===== -->
+  <div class="fg-box" id="fgContainer">
+    <div class="loading"><span class="lang-es active">Cargando Fear & Greed...</span><span class="lang-en">Loading Fear & Greed...</span></div>
+  </div>
+
+  <!-- ===== ESTADÍSTICAS ===== -->
+  <div class="stats-grid" id="statsContainer">
+    <div class="stat-item">
+      <div class="number" id="statsTrades">0</div>
+      <div class="label"><span class="lang-es active">Operaciones</span><span class="lang-en">Trades</span></div>
+    </div>
+    <div class="stat-item">
+      <div class="number" id="statsWinRate">0%</div>
+      <div class="label"><span class="lang-es active">Win Rate</span><span class="lang-en">Win Rate</span></div>
+    </div>
+    <div class="stat-item">
+      <div class="number" id="statsPnl">$0</div>
+      <div class="label">PNL</div>
+    </div>
+  </div>
+
+  <!-- ===== GRÁFICO + BALLENAS ===== -->
+  <div class="grid-2">
+    <div class="card" id="chartContainer">
+      <h3><i class="fas fa-chart-line" style="color:#3B82F6;"></i> <span class="lang-es active">Historial BTC</span><span class="lang-en">BTC History</span></h3>
+      <canvas id="priceChart" height="200"></canvas>
+    </div>
+    <div class="card" id="whalesContainer">
+      <h3><i class="fas fa-whale" style="color:#60A5FA;"></i> <span class="lang-es active">Ballenas</span><span class="lang-en">Whales</span></h3>
+      <div class="loading"><span class="lang-es active">Cargando ballenas...</span><span class="lang-en">Loading whales...</span></div>
+    </div>
+  </div>
+
+  <!-- ===== HISTORIAL DE TRADES ===== -->
+  <div class="card" id="tradesContainer">
+    <h3><i class="fas fa-list-ul" style="color:#F59E0B;"></i> <span class="lang-es active">Historial de operaciones</span><span class="lang-en">Trade history</span></h3>
+    <ul class="trade-list" id="tradeList">
+      <li class="loading"><span class="lang-es active">Cargando historial...</span><span class="lang-en">Loading history...</span></li>
+    </ul>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+  // ==================== IDIOMA ====================
+  (function() {
+    const btns = document.querySelectorAll('.lang-btn');
+    const allEl = document.querySelectorAll('.lang-es, .lang-en');
+    function setLang(lang) {
+      btns.forEach(b => b.classList.remove('active'));
+      document.querySelector(`.lang-btn[data-lang="${lang}"]`).classList.add('active');
+      allEl.forEach(el => {
+        if (el.classList.contains('lang-' + lang)) el.classList.add('active');
+        else el.classList.remove('active');
+      });
+    }
+    btns.forEach(b => b.addEventListener('click', function() { setLang(this.dataset.lang); }));
+  })();
+
+  // ==================== CLAVE API ====================
+  const urlParams = new URLSearchParams(window.location.search);
+  const API_KEY = urlParams.get('key');
+  if (!API_KEY) {
+    document.body.innerHTML = `
+      <div style="text-align:center; padding:4rem; color:#EF4444;">
+        <h1>🔒 Acceso no autorizado</h1>
+        <p>Proporciona la clave de API: <code>/dashboard?key=TU_CLAVE</code></p>
+      </div>
+    `;
+    throw new Error('Missing API key');
+  }
+
+  const API_BASE = window.location.origin;
+  let chartInstance = null;
+
+  // ==================== FETCH ====================
+  async function fetchData() {
+    try {
+      const marketRes = await fetch(`${API_BASE}/api/market_data?key=${API_KEY}`);
+      if (!marketRes.ok) throw new Error('Market data error');
+      const marketData = await marketRes.json();
+      renderPrices(marketData.market);
+      renderFG(marketData.fear_greed);
+      renderChart(marketData.history);
+      renderStats(marketData);
+
+      const tradesRes = await fetch(`${API_BASE}/api/trade_history?key=${API_KEY}`);
+      if (tradesRes.ok) {
+        const trades = await tradesRes.json();
+        renderTrades(trades);
+        updateStats(trades);
+      } else {
+        document.getElementById('tradeList').innerHTML = `<li class="loading"><span class="lang-es active">Sin historial</span><span class="lang-en">No history</span></li>`;
+      }
+
+      // Whales (simulado si no hay endpoint)
+      renderWhales();
+
+      document.getElementById('lastUpdate').textContent =
+        (document.querySelector('.lang-es.active') ? 'Última actualización: ' : 'Last update: ') +
+        new Date().toLocaleTimeString();
+
+    } catch (e) {
+      console.error(e);
+      document.querySelectorAll('.loading').forEach(el => el.textContent = '❌ Error');
+    }
+  }
+
+  // ==================== RENDER PRECIOS ====================
+  function renderPrices(market) {
+    const container = document.getElementById('pricesContainer');
+    if (!market) { container.innerHTML = '<div class="error">No data</div>'; return; }
+    const symbols = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'LINK', 'AVAX'];
+    let html = '';
+    for (const sym of symbols) {
+      const d = market[sym];
+      if (!d) continue;
+      const change = d.change_24h || 0;
+      const up = change >= 0;
+      html += `
+        <div class="card-price">
+          <div class="symbol">${sym}</div>
+          <div class="price">$${d.price ? d.price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00'}</div>
+          <div class="change ${up ? 'up' : 'down'}">${change >= 0 ? '+' : ''}${change.toFixed(2)}%</div>
+        </div>
+      `;
+    }
+    container.innerHTML = html || '<div class="error">No prices</div>';
+  }
+
+  // ==================== FEAR & GREED ====================
+  function renderFG(fg) {
+    const container = document.getElementById('fgContainer');
+    if (!fg) { container.innerHTML = '<div class="error">No Fear & Greed</div>'; return; }
+    const v = fg.value || 50;
+    const cls = fg.classification || 'Neutral';
+    const color = v < 30 ? '#EF4444' : v < 50 ? '#F59E0B' : '#34D399';
+    container.innerHTML = `
+      <div class="value" style="color:${color}">${v}</div>
+      <div class="label">Fear & Greed · ${cls}</div>
+    `;
+  }
+
+  // ==================== CHART ====================
+  function renderChart(history) {
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    if (chartInstance) chartInstance.destroy();
+    if (!history || history.length === 0) {
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: { labels: ['No data'], datasets: [{ label: 'BTC', data: [0], borderColor: '#3B82F6' }] },
+        options: { responsive: true, plugins: { legend: { display: false } } }
+      });
+      return;
+    }
+    const labels = history.map(h => new Date(h.time).toLocaleTimeString());
+    const data = history.map(h => h.BTC || 60000);
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'BTC (USD)',
+          data,
+          borderColor: '#3B82F6',
+          backgroundColor: 'rgba(59,130,246,0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 0,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { grid: { color: '#1E293B' }, ticks: { color: '#94A3B8' } },
+          x: { grid: { display: false }, ticks: { color: '#94A3B8', maxTicksLimit: 10 } }
         }
+      }
+    });
+  }
 
-        async function loadSettings() {
-            try {
-                const res = await fetch(`/api/settings/${chatId}`);
-                const data = await res.json();
-                
-                const sniperBtn = document.getElementById('sniper-toggle');
-                if (data.sniper && data.sniper.active) {
-                    sniperBtn.textContent = 'Activo';
-                    sniperBtn.className = 'toggle-btn active';
-                } else {
-                    sniperBtn.textContent = 'Inactivo';
-                    sniperBtn.className = 'toggle-btn inactive';
-                }
+  // ==================== STATS ====================
+  function renderStats(data) {
+    // Placeholder - se actualiza con trades reales
+  }
 
-                const copyBtn = document.getElementById('copy-toggle');
-                if (data.copy && data.copy.active) {
-                    copyBtn.textContent = 'Activo';
-                    copyBtn.className = 'toggle-btn active';
-                } else {
-                    copyBtn.textContent = 'Inactivo';
-                    copyBtn.className = 'toggle-btn inactive';
-                }
-            } catch(e) {
-                console.error('Error loading settings:', e);
-            }
-        }
+  function updateStats(trades) {
+    const total = trades.length || 0;
+    const wins = trades.filter(t => t.pnl && t.pnl > 0).length;
+    const winRate = total > 0 ? Math.round((wins / total) * 100) : 0;
+    const pnl = trades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+    document.getElementById('statsTrades').textContent = total;
+    document.getElementById('statsWinRate').textContent = winRate + '%';
+    document.getElementById('statsPnl').textContent = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
+  }
 
-        // ==================== TOGGLES ====================
-        document.getElementById('sniper-toggle').addEventListener('click', async function() {
-            const isActive = this.textContent === 'Activo';
-            const newValue = !isActive;
-            
-            try {
-                const res = await fetch('/api/update_sniper', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        chat_id: chatId,
-                        field: 'active',
-                        value: newValue
-                    })
-                });
-                if (res.ok) {
-                    this.textContent = newValue ? 'Activo' : 'Inactivo';
-                    this.className = newValue ? 'toggle-btn active' : 'toggle-btn inactive';
-                }
-            } catch(e) {
-                console.error('Error toggling sniper:', e);
-            }
+  // ==================== TRADES ====================
+  function renderTrades(trades) {
+    const list = document.getElementById('tradeList');
+    if (!trades || trades.length === 0) {
+      list.innerHTML = `<li class="loading"><span class="lang-es active">No hay operaciones</span><span class="lang-en">No trades</span></li>`;
+      return;
+    }
+    let html = '';
+    trades.slice(0, 20).forEach(t => {
+      const action = t.action || 'N/A';
+      const cls = action.toLowerCase() === 'buy' ? 'buy' : action.toLowerCase() === 'sell' ? 'sell' : '';
+      const pnl = t.pnl || 0;
+      const pnlCls = pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : '';
+      html += `
+        <li>
+          <span><span class="symbol">${t.symbol || 'BTC'}</span> <span class="action ${cls}">${action.toUpperCase()}</span></span>
+          <span>${t.amount || 0} @ ${t.price || 0}</span>
+          <span class="pnl ${pnlCls}">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</span>
+        </li>
+      `;
+    });
+    list.innerHTML = html;
+  }
+
+  // ==================== WHALES (SIMULADO) ====================
+  function renderWhales() {
+    const container = document.getElementById('whalesContainer');
+    // Intenta cargar desde /api/whales si existe, si no, muestra mensaje
+    fetch(`${API_BASE}/api/whales?key=${API_KEY}`)
+      .then(res => {
+        if (!res.ok) throw new Error('No endpoint');
+        return res.json();
+      })
+      .then(data => {
+        if (!data || data.length === 0) throw new Error('No whales');
+        let html = '';
+        data.slice(0, 5).forEach(w => {
+          const type = w.type || 'transfer';
+          const cls = type === 'buy' ? 'buy' : type === 'sell' ? 'sell' : 'transfer';
+          html += `
+            <div class="whale-item">
+              <span><span class="type ${cls}">${type.toUpperCase()}</span> ${w.symbol || 'BTC'}</span>
+              <span class="amount">$${w.value ? w.value.toLocaleString() : '0'}</span>
+            </div>
+          `;
         });
+        container.innerHTML = html;
+      })
+      .catch(() => {
+        container.innerHTML = `
+          <div style="color:#94A3B8; text-align:center; padding:1rem;">
+            <i class="fas fa-whale" style="font-size:2rem; color:#60A5FA;"></i>
+            <p style="margin-top:0.5rem;"><span class="lang-es active">Sin ballenas recientes</span><span class="lang-en">No recent whales</span></p>
+          </div>
+        `;
+      });
+  }
 
-        document.getElementById('copy-toggle').addEventListener('click', async function() {
-            const isActive = this.textContent === 'Activo';
-            const newValue = !isActive;
-            
-            try {
-                const res = await fetch('/api/update_copy', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        chat_id: chatId,
-                        field: 'active',
-                        value: newValue
-                    })
-                });
-                if (res.ok) {
-                    this.textContent = newValue ? 'Activo' : 'Inactivo';
-                    this.className = newValue ? 'toggle-btn active' : 'toggle-btn inactive';
-                }
-            } catch(e) {
-                console.error('Error toggling copy:', e);
-            }
-        });
+  // ==================== AUTO-ACTUALIZACIÓN ====================
+  fetchData();
+  setInterval(fetchData, 30000);
 
-        // ==================== INICIALIZAR ====================
-        loadStats();
-        loadSettings();
-
-        // Recargar cada 30 segundos
-        setInterval(loadStats, 30000);
-        setInterval(loadSettings, 30000);
-    </script>
+</script>
 </body>
 </html>
