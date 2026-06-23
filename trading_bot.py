@@ -810,6 +810,7 @@ def has_accepted_terms(chat_id):
     terms = load_terms()
     return str(chat_id) in terms and terms[str(chat_id)] == True
 
+@rate_limited()
 async def terms_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = """
@@ -1627,6 +1628,7 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
     await update.message.reply_text("No news found at the moment. Try again later.")
 
+@rate_limited()
 async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text(f"🆔 *Your user ID:* `{chat_id}`", parse_mode="Markdown")
