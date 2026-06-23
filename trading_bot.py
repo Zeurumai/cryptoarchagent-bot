@@ -1820,8 +1820,9 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"To change, use:\n"
             f"/lang en  -> English\n"
             f"/lang es  -> Español"
-            )
-        async def activate_from_callback(query, chat_id):
+        )
+
+async def activate_from_callback(query, chat_id):
     await activate(query.message, None)
 
 async def show_coin_info(query, symbol):
