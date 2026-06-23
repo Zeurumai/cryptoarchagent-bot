@@ -286,36 +286,91 @@ async def update_prices_from_websocket():
 # ==================== SEGURIDAD: ANTI-MEV Y ANTI-RUG ====================
 
 def check_token_security(contract_address: str, chain: str = "ethereum") -> dict:
+    """Verifica seguridad de un token usando GoPlusLabs API"""
+    # Si no hay API key o está deshabilitado, devolver riesgo 0
     if not GOPLUS_API_KEY or not ANTI_RUG_ENABLED:
         return {
             "is_honeypot": False,
             "is_whitelist_only": False,
             "can_sell": True,
-            "liquidity_locked": True,
+            "liquidity_locked": False,
             "owner_renounced": False,
             "risk_score": 0,
             "warnings": ["⚠️ Anti-Rug disabled or no API key"]
         }
     
+    # Validar dirección
+    if not contract_address or len(contract_address) < 10:
+        return {
+            "is_honeypot": False,
+            "is_whitelist_only": False,
+            "can_sell": True,
+            "liquidity_locked": False,
+            "owner_renounced": False,
+            "risk_score": 0,
+            "warnings": ["⚠️ Invalid contract address"]
+        }
+    
+    # Normalizar cadena (GoPlus espera: ethereum, bsc, polygon, arbitrum, avalanche)
+    chain_map = {
+        'eth': 'ethereum',
+        'bsc': 'bsc',
+        'polygon': 'polygon',
+        'arbitrum': 'arbitrum',
+        'avalanche': 'avalanche'
+    }
+    chain = chain_map.get(chain, chain)
+    
     try:
         url = f"https://api.gopluslabs.io/api/v1/token_security/{chain}?contract_addresses={contract_address}"
         headers = {"X-API-Key": GOPLUS_API_KEY} if GOPLUS_API_KEY else {}
+        logger.info(f"🔍 Verificando token {contract_address[:8]}... en {chain}")
         response = requests.get(url, headers=headers, timeout=10)
+        
         if response.status_code != 200:
-            logger.error(f"GoPlusLabs error: {response.status_code}")
-            return {"risk_score": 0, "warnings": ["⚠️ Could not verify contract"]}
+            logger.warning(f"GoPlusLabs HTTP {response.status_code}")
+            return {
+                "is_honeypot": False,
+                "is_whitelist_only": False,
+                "can_sell": True,
+                "liquidity_locked": False,
+                "owner_renounced": False,
+                "risk_score": 0,
+                "warnings": [f"⚠️ API error: {response.status_code}"]
+            }
         
         data = response.json()
         if data.get("code") != 1:
-            return {"risk_score": 0, "warnings": ["⚠️ Verification error"]}
+            return {
+                "is_honeypot": False,
+                "is_whitelist_only": False,
+                "can_sell": True,
+                "liquidity_locked": False,
+                "owner_renounced": False,
+                "risk_score": 0,
+                "warnings": ["⚠️ API response error"]
+            }
         
         result = data.get("result", {})
+        # La clave es la dirección del contrato (puede estar en minúsculas)
         token_data = result.get(contract_address.lower(), {})
+        if not token_data:
+            # Si no hay datos, el token no está en la base de GoPlus
+            return {
+                "is_honeypot": False,
+                "is_whitelist_only": False,
+                "can_sell": True,
+                "liquidity_locked": False,
+                "owner_renounced": False,
+                "risk_score": 0,
+                "warnings": ["⚠️ Token not verified by GoPlus"]
+            }
         
         is_honeypot = token_data.get("is_honeypot", False)
         is_whitelist_only = token_data.get("is_whitelist_only", False)
         can_sell = not is_honeypot and not is_whitelist_only
         
+        # Algunas claves pueden ser diferentes según la cadena
         liquidity_locked = token_data.get("liquidity_locked", False)
         owner_renounced = token_data.get("owner_renounced", False)
         
@@ -334,13 +389,14 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
             risk_score += 10
             warnings.append("⚠️ Owner not renounced (can modify contract)")
         
+        # Liquidez: puede estar en USD o en native
         liquidity = token_data.get("liquidity", 0)
         if isinstance(liquidity, str):
             try:
                 liquidity = float(liquidity)
             except:
                 liquidity = 0
-        if liquidity < 5000:
+        if liquidity and liquidity < 5000:
             risk_score += 10
             warnings.append("⚠️ Low liquidity (< $5000)")
         
@@ -351,25 +407,19 @@ def check_token_security(contract_address: str, chain: str = "ethereum") -> dict
             "liquidity_locked": liquidity_locked,
             "owner_renounced": owner_renounced,
             "risk_score": min(100, risk_score),
-            "warnings": warnings
+            "warnings": warnings if warnings else ["✅ No warnings"]
         }
     except Exception as e:
         logger.error(f"check_token_security error: {e}")
-        return {"risk_score": 0, "warnings": ["⚠️ Error verifying token"]}
-
-def simulate_anti_mev(symbol: str, amount: float) -> dict:
-    if not ANTI_MEV_ENABLED:
-        return {"protected": False, "message": "Anti-MEV disabled"}
-    
-    if amount > 10:
         return {
-            "protected": True,
-            "message": f"🛡️ Anti-MEV activated for {symbol} (amount > 10 USDT). Using private route."
+            "is_honeypot": False,
+            "is_whitelist_only": False,
+            "can_sell": True,
+            "liquidity_locked": False,
+            "owner_renounced": False,
+            "risk_score": 0,
+            "warnings": [f"⚠️ Error verifying token: {str(e)[:50]}"]
         }
-    else:
-        return {
-            "protected": True,
-            "message": "🛡️ Anti-MEV activated (standard mode)."
         }
 
 # ==================== IA PREDICTIVA AVANZADA ====================
@@ -1542,62 +1592,51 @@ async def newtokens_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     msg = "🚀 *Latest New Tokens (24h) - Con Análisis*\n\n"
     
-    # Mapeo de cadenas para GoPlus
-    chain_map = {
-        'eth': 'ethereum',
-        'bsc': 'bsc',
-        'polygon': 'polygon',
-        'arbitrum': 'arbitrum',
-        'avalanche': 'avalanche'
-    }
-    
     for token in tokens[:10]:
-        # Formato base del token
         base_msg = format_token_message(token)
         
-        # Obtener dirección y cadena
         contract = token.get('address', '')
         chain = token.get('chain', 'eth')
         
-        # Saltar direcciones inválidas (muy cortas o sin 0x)
+        # Saltar direcciones inválidas
         if not contract or len(contract) < 10 or not contract.startswith('0x'):
             base_msg += "\n⚪ *Seguridad:* Dirección inválida o desconocida"
             msg += base_msg + "\n\n"
             continue
         
-        goplus_chain = chain_map.get(chain, 'ethereum')
-        
-        # Realizar análisis de seguridad
+        # Realizar análisis
         if GOPLUS_API_KEY and ANTI_RUG_ENABLED:
             try:
-                security = check_token_security(contract, goplus_chain)
+                security = check_token_security(contract, chain)
                 risk_score = security.get('risk_score', 0)
                 warnings = security.get('warnings', [])
                 is_honeypot = security.get('is_honeypot', False)
                 liquidity_locked = security.get('liquidity_locked', False)
                 can_sell = security.get('can_sell', True)
                 
-                # Determinar el estado
                 if is_honeypot or not can_sell:
-                    risk_score = 100
                     base_msg += "\n🛡️ *Risk Score:* 100/100 🚨 *HONEYPOT*"
-                elif risk_score == 0 and not warnings:
-                    base_msg += "\n✅ *Seguridad:* Verificado (Bajo riesgo)"
+                elif risk_score == 0:
+                    # Si no hay warnings y no hay riesgo, es seguro
+                    if warnings == ["✅ No warnings"]:
+                        base_msg += "\n✅ *Seguridad:* Verificado (Bajo riesgo)"
+                    else:
+                        base_msg += f"\n🛡️ *Risk Score:* {risk_score}/100"
+                        if warnings and warnings[0] != "✅ No warnings":
+                            base_msg += f"\n   ⚠️ {', '.join(warnings[:2])}"
                 else:
-                    base_msg += f"\n🛡️ *Risk Score:* {risk_score}/100"
-                    if risk_score > 30:
-                        base_msg += " ⚠️ *ALTO RIESGO*"
+                    base_msg += f"\n🛡️ *Risk Score:* {risk_score}/100 ⚠️ *RIESGO*"
                     if is_honeypot:
-                        base_msg += "\n   🚨 *HONEYPOT DETECTADO* (No se puede vender)"
+                        base_msg += "\n   🚨 *HONEYPOT* (No se puede vender)"
                     if not liquidity_locked and risk_score > 0:
-                        base_msg += "\n   ⚠️ Liquidez NO bloqueada (Riesgo de rug pull)"
+                        base_msg += "\n   ⚠️ Liquidez NO bloqueada"
                     if not can_sell:
-                        base_msg += "\n   🚫 No se puede vender (Whitelist/Honeypot)"
+                        base_msg += "\n   🚫 No se puede vender"
                     if warnings:
                         base_msg += f"\n   ⚠️ {', '.join(warnings[:2])}"
             except Exception as e:
                 logger.error(f"Error analizando token {contract}: {e}")
-                base_msg += "\n⚠️ *Seguridad:* Error al verificar (API)"
+                base_msg += "\n⚠️ *Seguridad:* Error al verificar"
         else:
             base_msg += "\n⚪ *Seguridad:* API no configurada (GOPLUS_API_KEY)"
         
