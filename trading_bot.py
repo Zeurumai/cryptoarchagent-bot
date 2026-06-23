@@ -1342,7 +1342,6 @@ async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limited()
 async def compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Comando /compare - Comparativa con la competencia"""
-    chat_id = update.effective_chat.id
     text = """
 ⚔️ *CryptoArch Agent vs. The Giants*
 
@@ -1375,8 +1374,8 @@ Use /plan to check your level.
 
 *Choose wisely. Or don't. But you've been warned.* 🚀
 """
-    # Si se llama desde un callback, edita el mensaje; si no, envía uno nuevo
-    if hasattr(update, 'callback_query'):
+    # Verificar si es un callback (botón) o un comando directo
+    if update.callback_query:
         query = update.callback_query
         await query.answer()
         await query.edit_message_text(text, parse_mode="Markdown")
@@ -1390,7 +1389,7 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not AI_MODEL_ENABLED:
         msg = "⚠️ *AI Predictor disabled*\n\nEnable with `AI_MODEL_ENABLED=true` in Railway."
-        if hasattr(update, 'callback_query'):
+        if update.callback_query:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
         else:
@@ -1401,7 +1400,6 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("last_whale_alerts"):
         await update.message.reply_text("🐋 *Fetching whale movements first...*", parse_mode="Markdown")
         try:
-            # Llamamos a la función de whale para llenar el contexto
             btc_alerts = await asyncio.to_thread(obtener_alertas_bitcoin, 50000, 3)
             eth_alerts = await asyncio.to_thread(obtener_alertas_ethereum, 10000, 3)
             sol_alerts = await asyncio.to_thread(obtener_alertas_solana, 10000, 3)
@@ -1441,7 +1439,7 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "\n\n_Based on recent whale activity and multi-factor analysis._\n"
         msg += "⚠️ _Not financial advice._"
 
-        if hasattr(update, 'callback_query'):
+        if update.callback_query:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
         else:
@@ -1449,7 +1447,7 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in predict: {e}")
         error_msg = f"⚠️ *AI Prediction temporarily unavailable*\n\nError: {str(e)}"
-        if hasattr(update, 'callback_query'):
+        if update.callback_query:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(error_msg, parse_mode="Markdown")
         else:
@@ -1645,10 +1643,10 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_SECRET_KEY"):
             await update.message.reply_text(
-                "⚠️ *Binance API keys not configured.*\n\n"
+                "⚠️ Binance API keys not configured.\n\n"
                 "Please set BINANCE_API_KEY and BINANCE_SECRET_KEY in Railway.\n"
                 "For testnet, also set BINANCE_TESTNET=true\n\n"
-                "💡 *Tip:* You can still use all other features (whales, AI, alerts, etc.) without Binance keys.",
+                "💡 Tip: You can still use all other features (whales, AI, alerts, etc.) without Binance keys.",
                 parse_mode="Markdown"
             )
             return
@@ -1659,7 +1657,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if usdt_balance is None or btc_balance is None:
             await update.message.reply_text(
-                "⚠️ *Could not connect to Binance Testnet.*\n\n"
+                "⚠️ Could not connect to Binance Testnet.\n\n"
                 "Please check your API keys and that you have testnet funds.\n"
                 "Visit https://testnet.binance.vision/ to get testnet tokens.",
                 parse_mode="Markdown"
@@ -1678,7 +1676,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error en /balance: {e}")
         logger.error(traceback.format_exc())
         await update.message.reply_text(
-            "❌ *Error checking balance.*\n\n"
+            "❌ Error checking balance.\n\n"
             "Please ensure Binance API keys are correctly configured in Railway.\n"
             "For now, you can use all other features without Binance keys.",
             parse_mode="Markdown"
