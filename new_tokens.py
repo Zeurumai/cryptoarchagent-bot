@@ -42,29 +42,32 @@ def _save_local_tokens(tokens):
         json.dump(tokens, f, indent=2, default=str)
 
 def _fetch_geckoterminal(chain, limit=20):
-    """Obtiene tokens de GeckoTerminal para una cadena específica"""
+    """Obtiene tokens de GeckoTerminal para una cadena específica (con logs)"""
     tokens = []
     try:
         url = f"https://api.geckoterminal.com/api/v2/networks/{chain}/tokens?sort=created_at_desc&page[limit]={limit}"
+        logger.info(f"🌐 Fetching GeckoTerminal {chain}: {url}")
         headers = {"Accept": "application/json"}
         response = requests.get(url, headers=headers, timeout=10)
+        logger.info(f"📡 GeckoTerminal {chain} status: {response.status_code}")
         
         if response.status_code == 200:
             data = response.json()
             if 'data' in data:
                 for item in data['data']:
                     attrs = item.get('attributes', {})
-                    # Solo tokens con dirección válida
                     address = attrs.get('address', '')
                     if not address or len(address) < 10:
                         continue
-                    
+                    price = attrs.get('price_usd', '0')
+                    if price == '0' or price is None:
+                        continue
                     token = {
                         'name': attrs.get('name', 'Unknown'),
                         'symbol': attrs.get('symbol', '???'),
                         'address': address,
                         'chain': chain,
-                        'price_usd': attrs.get('price_usd', '0'),
+                        'price_usd': price,
                         'volume_24h': attrs.get('volume_usd', {}).get('h24', '0'),
                         'market_cap': attrs.get('market_cap_usd', '0'),
                         'created_at': attrs.get('created_at', ''),
@@ -73,15 +76,19 @@ def _fetch_geckoterminal(chain, limit=20):
                         'holder_count': attrs.get('holder_count', '0')
                     }
                     tokens.append(token)
+                logger.info(f"✅ GeckoTerminal {chain}: {len(tokens)} tokens encontrados")
+            else:
+                logger.warning(f"⚠️ GeckoTerminal {chain}: no 'data' en la respuesta")
+        else:
+            logger.warning(f"⚠️ GeckoTerminal {chain} error HTTP {response.status_code}")
     except Exception as e:
-        logger.error(f"Error fetching from GeckoTerminal {chain}: {e}")
+        logger.error(f"❌ Error fetching from GeckoTerminal {chain}: {e}")
     return tokens
 
 def _fetch_dexscreener(chain, limit=10):
-    """Fallback: Obtiene pares recientes de DexScreener para una cadena"""
+    """Fallback: Obtiene pares recientes de DexScreener (con logs)"""
     tokens = []
     try:
-        # Mapeo de nombres de cadena para DexScreener
         chain_map = {
             'eth': 'ethereum',
             'bsc': 'bsc',
@@ -91,28 +98,24 @@ def _fetch_dexscreener(chain, limit=10):
         }
         chain_name = chain_map.get(chain, chain)
         url = f"https://api.dexscreener.com/latest/dex/search?q={chain_name}"
+        logger.info(f"🌐 Fetching DexScreener {chain}: {url}")
         response = requests.get(url, timeout=10)
+        logger.info(f"📡 DexScreener {chain} status: {response.status_code}")
         
         if response.status_code == 200:
             data = response.json()
             if 'pairs' in data:
                 for pair in data['pairs'][:limit]:
                     base = pair.get('baseToken', {})
-                    quote = pair.get('quoteToken', {})
-                    # Solo tokens con dirección válida y que sean recientes
                     if not base.get('address'):
                         continue
-                    
-                    # Calcular antigüedad aproximada (los pares recientes tienen menos de 24h)
                     created = pair.get('pairCreatedAt', 0)
-                    if created:
-                        created_dt = datetime.fromtimestamp(created / 1000)
-                        age_hours = (datetime.now() - created_dt).total_seconds() / 3600
-                        if age_hours > 48:
-                            continue
-                    else:
+                    if not created:
                         continue
-                    
+                    created_dt = datetime.fromtimestamp(created / 1000)
+                    age_hours = (datetime.now() - created_dt).total_seconds() / 3600
+                    if age_hours > 48:
+                        continue
                     token = {
                         'name': base.get('name', 'Unknown'),
                         'symbol': base.get('symbol', '???'),
@@ -121,28 +124,35 @@ def _fetch_dexscreener(chain, limit=10):
                         'price_usd': pair.get('priceUsd', '0'),
                         'volume_24h': pair.get('volume', {}).get('h24', '0'),
                         'market_cap': pair.get('marketCap', '0'),
-                        'created_at': created_dt.isoformat() if created else '',
+                        'created_at': created_dt.isoformat(),
                         'buy_tax': '0',
                         'sell_tax': '0',
                         'holder_count': '0'
                     }
                     tokens.append(token)
+                logger.info(f"✅ DexScreener {chain}: {len(tokens)} tokens encontrados")
+            else:
+                logger.warning(f"⚠️ DexScreener {chain}: no 'pairs' en la respuesta")
+        else:
+            logger.warning(f"⚠️ DexScreener {chain} error HTTP {response.status_code}")
     except Exception as e:
-        logger.error(f"Error fetching from DexScreener {chain}: {e}")
+        logger.error(f"❌ Error fetching from DexScreener {chain}: {e}")
     return tokens
 
 def get_recent_tokens(limit=10):
-    """Obtiene tokens reales recién creados de múltiples cadenas"""
+    """Obtiene tokens reales recién creados de múltiples cadenas (con logs)"""
+    logger.info("🔍 Iniciando búsqueda de nuevos tokens...")
     all_tokens = []
     chains = ['eth', 'bsc', 'polygon', 'arbitrum', 'avalanche']
     
-    # Primero intentar GeckoTerminal (más completo)
     for chain in chains:
+        # Intentar GeckoTerminal
         tokens = _fetch_geckoterminal(chain, limit=15)
         if tokens:
             all_tokens.extend(tokens)
         else:
             # Fallback a DexScreener
+            logger.info(f"🔄 Usando fallback DexScreener para {chain}")
             tokens = _fetch_dexscreener(chain, limit=5)
             all_tokens.extend(tokens)
     
@@ -155,12 +165,14 @@ def get_recent_tokens(limit=10):
             seen.add(addr)
             unique_tokens.append(t)
     
+    logger.info(f"📦 Tokens únicos encontrados: {len(unique_tokens)}")
     # Ordenar por fecha de creación (más nuevos primero)
     unique_tokens.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-    return unique_tokens[:limit]
+    result = unique_tokens[:limit]
+    logger.info(f"✅ Devolviendo {len(result)} tokens (de {len(unique_tokens)} únicos)")
+    return result
 
 def scan_new_pools(limit=5, min_liquidity=5000):
-    """Escanea pools nuevos para alertas automáticas"""
     tokens = get_recent_tokens(limit=limit * 2)
     filtered = []
     for t in tokens:
