@@ -2511,6 +2511,28 @@ def delete_alert(chat_id, idx):
         alerts.pop(idx)
         save_user_data()
 
+@rate_limited()
+async def alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /alerts - Muestra las alertas del usuario"""
+    chat_id = update.effective_chat.id
+    # Reutilizamos la lógica de show_alerts pero con un mensaje en lugar de callback
+    data = USER_DATA.get(str(chat_id), {})
+    alerts = data.get("alerts", [])
+    if not alerts:
+        await update.message.reply_text("🔔 No tienes alertas activas.\nUsa el menú para crear una nueva.")
+        return
+    keyboard = []
+    for i, a in enumerate(alerts):
+        state = "✅" if a.get("active", True) else "❌"
+        keyboard.append([InlineKeyboardButton(f"{state} {a['coin']} {a['condition']} ${a['price']:,.0f}", callback_data=f"alert_toggle_{i}")])
+        keyboard.append([InlineKeyboardButton(f"🗑 Eliminar {a['coin']}", callback_data=f"alert_delete_{i}")])
+    keyboard.append([InlineKeyboardButton("🔙 Volver al menú", callback_data="menu")])
+    await update.message.reply_text(
+        "🔔 *Tus alertas*",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
 async def new_alert_coin(query, chat_id):
     level = get_user_level(chat_id)
     if level == 0:
