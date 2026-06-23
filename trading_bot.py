@@ -40,6 +40,32 @@ load_dotenv()
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ==================== RATE LIMITING ====================
+rate_limit_store = {}
+
+def is_rate_limited(chat_id: int) -> bool:
+    now = time.time()
+    key = f"rate_{chat_id}"
+    if key not in rate_limit_store:
+        rate_limit_store[key] = []
+    rate_limit_store[key] = [t for t in rate_limit_store[key] if t > now - RATE_LIMIT_PERIOD]
+    if len(rate_limit_store[key]) >= RATE_LIMIT_REQUESTS:
+        return True
+    rate_limit_store[key].append(now)
+    return False
+
+def rate_limited():
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            chat_id = update.effective_chat.id
+            if is_rate_limited(chat_id):
+                await update.message.reply_text("⏳ Too many requests. Please wait a moment.")
+                return
+            return await func(update, context)
+        return wrapper
+    return decorator
+
 # ==================== CONFIGURACIÓN ====================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
@@ -62,7 +88,7 @@ PRICE_CACHE_TTL = int(os.getenv("PRICE_CACHE_TTL", "3"))
 # ==================== ANTI-MEV / ANTI-RUG ====================
 GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")
 ANTI_MEV_ENABLED = os.getenv("ANTI_MEV_ENABLED", "true").lower() == "true"
-ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true"
+ANTI_RUG_ENABLED = os.getenv("ANTI_RUG_ENABLED", "true").lower() == "true")
 
 # ==================== IA PREDICTIVA ====================
 AI_MODEL_ENABLED = os.getenv("AI_MODEL_ENABLED", "true").lower() == "true"
@@ -568,8 +594,7 @@ def predict_with_ai_advanced(alert: dict, all_alerts: list = None) -> dict:
         "emoji": emoji,
         "details": detail,
         "factors": factors
-        
-    }
+   }
 
 # ==================== USER DATA ====================
 USER_DATA = {}
@@ -826,32 +851,6 @@ This bot is an *analysis and automation tool*. **IT IS NOT A FINANCIAL ADVISOR**
 Type `/accept` to confirm you have read and agree.
 """
     await update.message.reply_text(text, parse_mode="Markdown")
-
-# ==================== RATE LIMITING ====================
-rate_limit_store = {}
-
-def is_rate_limited(chat_id: int) -> bool:
-    now = time.time()
-    key = f"rate_{chat_id}"
-    if key not in rate_limit_store:
-        rate_limit_store[key] = []
-    rate_limit_store[key] = [t for t in rate_limit_store[key] if t > now - RATE_LIMIT_PERIOD]
-    if len(rate_limit_store[key]) >= RATE_LIMIT_REQUESTS:
-        return True
-    rate_limit_store[key].append(now)
-    return False
-
-def rate_limited():
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            chat_id = update.effective_chat.id
-            if is_rate_limited(chat_id):
-                await update.message.reply_text("⏳ Too many requests. Please wait a moment.")
-                return
-            return await func(update, context)
-        return wrapper
-    return decorator
 
 # ==================== FUNCIONES DE MERCADO Y UTILIDADES ====================
 def get_all_prices():
@@ -3107,6 +3106,3 @@ if __name__ == "__main__":
         logger.error(f"❌ Fatal error: {e}")
         logger.error(traceback.format_exc())
         raise
-
-
-    
