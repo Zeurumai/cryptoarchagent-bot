@@ -19,49 +19,28 @@ class TradingEngine:
 
         # Inicializar cliente de Binance (usando requests_params para compatibilidad)
         try:
-            self.client = Client(self.api_key, self.api_secret, requests_params={'base_url': base_url})
+            self.client = Client(self.api_key, self.api_secret)
+            # Configurar la URL base manualmente
+            if base_url != "https://api.binance.com":
+                self.client.API_URL = base_url + "/api/v3"
+                self.client.WS_URL = base_url.replace("https://", "wss://") + "/ws"
             logger.info("✅ Binance client initialized")
         except Exception as e:
             logger.error(f"❌ Error initializing Binance client: {e}")
             self.client = None
 
-        # =====================================================
-        # SOLANA CLIENT (CON MANEJO DE ERRORES Y SOPORTE PARA LLAVE PRIVADA)
-        # =====================================================
-        try:
-            from solana.rpc.api import Client as SolanaClient
-            from solana.keypair import Keypair
-            import base58
-
-            solana_private_key = os.getenv("SOLANA_PRIVATE_KEY")
-            endpoint = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
-
-            self.solana_client = SolanaClient(endpoint)
-
-            if solana_private_key:
-                try:
-                    keypair_bytes = base58.b58decode(solana_private_key)
-                    keypair = Keypair.from_secret_key(keypair_bytes)
-                    self.solana_client = SolanaClient(endpoint, keypair=keypair)
-                    logger.info("✅ Solana client initialized with keypair")
-                except Exception as e:
-                    logger.warning(f"⚠️ Invalid Solana private key, using client without keypair: {e}")
-            else:
-                logger.info("✅ Solana client initialized without keypair (read-only mode)")
-
-        except ImportError:
-            logger.warning("⚠️ Solana libraries not installed. Solana features disabled.")
-            self.solana_client = None
-        except Exception as e:
-            logger.warning(f"⚠️ Solana client initialization failed: {e}")
-            self.solana_client = None
+        # Solana desactivado para evitar errores
+        self.solana_client = None
+        logger.info("ℹ️ Solana client disabled")
 
     def get_balance(self, asset="USDT"):
         if not self.client:
             return None
         try:
             balance = self.client.get_asset_balance(asset=asset)
-            return float(balance['free'])
+            if balance is None:
+                return 0.0
+            return float(balance.get('free', 0.0))
         except BinanceAPIException as e:
             logger.error(f"Binance API error for {asset}: {e}")
             return None
