@@ -17,9 +17,9 @@ class TradingEngine:
         if self.testnet:
             base_url = "https://testnet.binance.vision"
 
-        # Inicializar cliente de Binance (usando requests_params para la URL)
+        # Inicializar cliente de Binance (usando base_url directamente)
         try:
-            self.client = Client(self.api_key, self.api_secret, requests_params={'base_url': base_url})
+            self.client = Client(self.api_key, self.api_secret, base_url=base_url)
             logger.info("✅ Binance client initialized")
         except Exception as e:
             logger.error(f"❌ Error initializing Binance client: {e}")
