@@ -17,9 +17,9 @@ class TradingEngine:
         if self.testnet:
             base_url = "https://testnet.binance.vision"
 
-        # Inicializar cliente de Binance
+        # Inicializar cliente de Binance (usando requests_params para la URL)
         try:
-            self.client = Client(self.api_key, self.api_secret, {"base_url": base_url})
+            self.client = Client(self.api_key, self.api_secret, requests_params={'base_url': base_url})
             logger.info("✅ Binance client initialized")
         except Exception as e:
             logger.error(f"❌ Error initializing Binance client: {e}")
@@ -42,15 +42,12 @@ class TradingEngine:
             # Si hay una llave privada configurada, intentar usarla
             if solana_private_key:
                 try:
-                    # Decodificar clave privada (asume base58)
                     keypair_bytes = base58.b58decode(solana_private_key)
                     keypair = Keypair.from_secret_key(keypair_bytes)
-                    # Recrear cliente con keypair
                     self.solana_client = SolanaClient(endpoint, keypair=keypair)
                     logger.info("✅ Solana client initialized with keypair")
                 except Exception as e:
                     logger.warning(f"⚠️ Invalid Solana private key, using client without keypair: {e}")
-                    # El cliente ya está inicializado sin keypair
             else:
                 logger.info("✅ Solana client initialized without keypair (read-only mode)")
 
@@ -62,7 +59,6 @@ class TradingEngine:
             self.solana_client = None
 
     def get_balance(self, asset="USDT"):
-        """Obtiene el saldo de un activo en Binance"""
         if not self.client:
             return None
         try:
@@ -76,7 +72,6 @@ class TradingEngine:
             return None
 
     def get_price(self, symbol="BTCUSDT"):
-        """Obtiene el precio actual de un par en Binance"""
         if not self.client:
             return None
         try:
@@ -87,14 +82,10 @@ class TradingEngine:
             return None
 
     def buy_market(self, symbol, quantity):
-        """Compra en el mercado (orden de mercado)"""
         if not self.client:
             return None
         try:
-            order = self.client.order_market_buy(
-                symbol=symbol,
-                quantity=quantity
-            )
+            order = self.client.order_market_buy(symbol=symbol, quantity=quantity)
             logger.info(f"✅ Buy order executed: {order['orderId']}")
             return order
         except Exception as e:
@@ -102,14 +93,10 @@ class TradingEngine:
             return None
 
     def sell_market(self, symbol, quantity):
-        """Vende en el mercado (orden de mercado)"""
         if not self.client:
             return None
         try:
-            order = self.client.order_market_sell(
-                symbol=symbol,
-                quantity=quantity
-            )
+            order = self.client.order_market_sell(symbol=symbol, quantity=quantity)
             logger.info(f"✅ Sell order executed: {order['orderId']}")
             return order
         except Exception as e:
