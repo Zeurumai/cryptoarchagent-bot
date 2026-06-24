@@ -1734,19 +1734,10 @@ async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limited()
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Comando /balance - Muestra saldo en Binance"""
-    chat_id = update.effective_chat.id
     try:
-        # Recargar variables de entorno
-        load_dotenv(override=True)
-        
         api_key = os.getenv("BINANCE_API_KEY")
         secret_key = os.getenv("BINANCE_SECRET_KEY")
         testnet = os.getenv("BINANCE_TESTNET", "false").lower() == "true"
-
-        # Logs para depuración (se ven en Railway)
-        logger.info(f"BINANCE_API_KEY: {'*' * len(api_key) if api_key else 'NOT SET'}")
-        logger.info(f"BINANCE_SECRET_KEY: {'*' * len(secret_key) if secret_key else 'NOT SET'}")
-        logger.info(f"BINANCE_TESTNET: {testnet}")
 
         if not api_key or not secret_key:
             await update.message.reply_text(
@@ -1757,11 +1748,10 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Usar la URL del proxy si está configurada
         engine = TradingEngine(testnet=testnet)
         usdt_balance = engine.get_balance("USDT")
         btc_balance = engine.get_balance("BTC")
-        
+
         if usdt_balance is None or btc_balance is None:
             await update.message.reply_text(
                 "⚠️ Could not connect to Binance.\n\n"
@@ -1782,7 +1772,6 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ Error checking balance.\n\n"
             "Verify Binance API keys in Railway.\n"
             "Other features work without Binance keys."
-        )
         )
 @rate_limited()
 async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
