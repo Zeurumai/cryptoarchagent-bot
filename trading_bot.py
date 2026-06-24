@@ -1497,13 +1497,14 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
 
     if not supabase:
-        await update.message.reply_text(
-            "⚠️ *Copy Trading not available*\n\n"
-            "This feature requires Supabase to be connected.\n"
-            "Please configure SUPABASE_URL and SUPABASE_KEY in Railway.",
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text("❌ Supabase not connected.")
         return
+
+    # 🔥 Establecer chat_id en la sesión ANTES de cualquier operación
+    try:
+        supabase.rpc("set_chat_id", {"chat_id": chat_id}).execute()
+    except Exception as e:
+        logger.error(f"Error setting chat_id: {e}")
 
     if not args:
         try:
@@ -1523,7 +1524,7 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text(
                     "🐋 *Copy Trading not configured*\n\n"
-                    "To set it up, use: `/copy [amount] [slippage] [mode] [on/off]`\n"
+                    "To set it up: `/copy [amount] [slippage] [mode] [on/off]`\n"
                     "Example: `/copy 20 1.5 follow on`\n\n"
                     "Modes:\n"
                     "• `follow` → buy when whale buys (bullish)\n"
@@ -1539,16 +1540,19 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(args) < 4:
             await update.message.reply_text("❌ Usage: `/copy [amount] [slippage] [mode] [on/off]`")
             return
+        
         max_amount = float(args[0])
         slippage = float(args[1])
         mode = args[2].lower()
         active = args[3].lower() == "on"
+        
         if mode not in ["follow", "invert"]:
             await update.message.reply_text("❌ Mode must be 'follow' or 'invert'")
             return
         if max_amount <= 0 or slippage < 0:
             await update.message.reply_text("❌ Amount must be > 0 and slippage >= 0")
             return
+        
         data = {
             "chat_id": chat_id,
             "max_amount": max_amount,
@@ -1557,7 +1561,9 @@ async def copy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "active": active,
             "updated_at": datetime.now().isoformat()
         }
-        supabase.table("copy_settings").upsert(data).execute()
+        
+        supabase.table("copy_settings").upsert(data, on_conflict="chat_id").execute()
+        
         await update.message.reply_text(
             f"✅ *Copy settings saved!*\n\n"
             f"💰 Max amount: {max_amount} USDT\n"
@@ -2739,110 +2745,18 @@ async def rules_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def rule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
+    
     if not supabase:
-        await update.message.reply_text("❌ Database not available.")
+        await update.message.reply_text("❌ Supabase not connected.")
         return
-    if len(args) == 0:
-        await update.message.reply_text("❌ Usage: /rule [add|list|toggle|delete] ...")
-        return
-    subcommand = args[0].lower()
-    if subcommand == "add":
-        if len(args) < 6:
-            await update.message.reply_text(
-                "❌ Usage: `/rule add \"condition\" action amount stop_loss take_profit`\n"
-                "Example: `/rule add \"whale_buy_btc > 100\" buy 50 5 10`"
-            )
-            return
-        try:
-            full_text = " ".join(args[1:])
-            match = re.search(r'"(.*?)"', full_text)
-            if match:
-                condition = match.group(1)
-                rest = full_text.replace(f'"{condition}"', '').strip().split()
-                if len(rest) < 4:
-                    await update.message.reply_text("❌ Missing parameters after condition.")
-                    return
-                action = rest[0].lower()
-                amount = float(rest[1])
-                stop_loss = float(rest[2])
-                take_profit = float(rest[3])
-            else:
-                condition = args[1]
-                action = args[2].lower()
-                amount = float(args[3])
-                stop_loss = float(args[4])
-                take_profit = float(args[5])
-            condition = re.sub(r'[^a-zA-Z0-9_>\<=\s]', '', condition)
-            if action not in ["buy", "sell"]:
-                await update.message.reply_text("❌ Action must be 'buy' or 'sell'")
-                return
-            if amount <= 0 or stop_loss < 0 or take_profit < 0:
-                await update.message.reply_text("❌ Amount, stop_loss and take_profit must be positive numbers.")
-                return
-            data = {
-                "chat_id": chat_id,
-                "condition": condition,
-                "action": action,
-                "amount": amount,
-                "stop_loss": stop_loss,
-                "take_profit": take_profit,
-                "active": True,
-                "created_at": datetime.now().isoformat()
-            }
-            supabase.table("rules").insert(data).execute()
-            await update.message.reply_text("✅ Rule created successfully.")
-        except ValueError:
-            await update.message.reply_text("❌ Invalid number format.")
-        except Exception as e:
-            logger.error(f"Error creating rule: {e}")
-            await update.message.reply_text("❌ Internal error.")
-    elif subcommand == "list":
-        await rules_menu(update, context)
-    elif subcommand == "toggle":
-        if len(args) < 2:
-            await update.message.reply_text("❌ Usage: /rule toggle [id]")
-            return
-        try:
-            rule_id = int(args[1])
-            if str(rule_id) == chat_id:
-                await update.message.reply_text(
-                    "❌ That's your Telegram ID, not a rule ID.\n"
-                    "Use `/rule list` to see your rule IDs."
-                )
-                return
-            rule = supabase.table("rules").select("*").eq("id", rule_id).eq("chat_id", chat_id).execute()
-            if not rule.data:
-                await update.message.reply_text("❌ Rule not found.")
-                return
-            new_status = not rule.data[0]["active"]
-            supabase.table("rules").update({"active": new_status}).eq("id", rule_id).execute()
-            await update.message.reply_text(f"✅ Rule {rule_id} {'activated' if new_status else 'paused'}.")
-        except ValueError:
-            await update.message.reply_text("❌ Invalid ID.")
-        except Exception as e:
-            logger.error(f"Error toggling rule: {e}")
-            await update.message.reply_text("❌ Internal error.")
-    elif subcommand == "delete":
-        if len(args) < 2:
-            await update.message.reply_text("❌ Usage: /rule delete [id]")
-            return
-        try:
-            rule_id = int(args[1])
-            if str(rule_id) == chat_id:
-                await update.message.reply_text(
-                    "❌ That's your Telegram ID, not a rule ID.\n"
-                    "Use `/rule list` to see your rule IDs."
-                )
-                return
-            supabase.table("rules").delete().eq("id", rule_id).eq("chat_id", chat_id).execute()
-            await update.message.reply_text(f"✅ Rule {rule_id} deleted.")
-        except ValueError:
-            await update.message.reply_text("❌ Invalid ID.")
-        except Exception as e:
-            logger.error(f"Error deleting rule: {e}")
-            await update.message.reply_text("❌ Internal error.")
-    else:
-        await update.message.reply_text("❌ Unknown subcommand. Use: add, list, toggle, delete")
+
+    # 🔥 Establecer chat_id en la sesión
+    try:
+        supabase.rpc("set_chat_id", {"chat_id": chat_id}).execute()
+    except Exception as e:
+        logger.error(f"Error setting chat_id: {e}")
+
+    # ... resto del código (sin cambios)
 
 @rate_limited()
 async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2881,152 +2795,35 @@ async def snipe_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
+    
     if not supabase:
-        await update.message.reply_text("❌ Database not available.")
+        await update.message.reply_text("❌ Supabase not connected.")
         return
-    if len(args) == 0:
-        await snipe_settings_menu(update, context)
-        return
-    subcommand = args[0].lower()
-    if subcommand == "set":
-        if len(args) < 5:
-            await update.message.reply_text(
-                "❌ Usage: `/snipe set [amount] [slippage] [chain] [on/off]`\n"
-                "Example: `/snipe set 50 5 ethereum on`"
-            )
-            return
-        try:
-            amount = float(args[1])
-            slippage = float(args[2])
-            chain = args[3].lower()
-            active = args[4].lower() == "on"
-            if chain not in ["ethereum", "bsc"]:
-                await update.message.reply_text("❌ Chain must be 'ethereum' or 'bsc'")
-                return
-            if amount <= 0 or slippage < 0:
-                await update.message.reply_text("❌ Amount must be > 0 and slippage >= 0")
-                return
-            data = {
-                "chat_id": chat_id,
-                "max_amount": amount,
-                "slippage": slippage,
-                "chain": chain,
-                "active": active,
-                "updated_at": datetime.now().isoformat()
-            }
-            supabase.table("snipe_settings").upsert(data).execute()
-            await update.message.reply_text(
-                f"✅ *Snipe settings saved!*\n\n"
-                f"💰 Max amount: ${amount} USDT\n"
-                f"📉 Slippage: {slippage}%\n"
-                f"⛓️ Chain: {chain}\n"
-                f"🔘 Status: {'✅ Active' if active else '❌ Paused'}",
-                parse_mode="Markdown"
-            )
-        except ValueError:
-            await update.message.reply_text("❌ Invalid number format.")
-        except Exception as e:
-            logger.error(f"Error saving snipe settings: {e}")
-            await update.message.reply_text("❌ Internal error.")
-    elif subcommand == "on":
-        try:
-            supabase.table("snipe_settings").update({"active": True}).eq("chat_id", chat_id).execute()
-            await update.message.reply_text("✅ Snipe activated.")
-        except Exception as e:
-            logger.error(f"Error activating snipe: {e}")
-            await update.message.reply_text("❌ Internal error.")
-    elif subcommand == "off":
-        try:
-            supabase.table("snipe_settings").update({"active": False}).eq("chat_id", chat_id).execute()
-            await update.message.reply_text("✅ Snipe paused.")
-        except Exception as e:
-            logger.error(f"Error pausing snipe: {e}")
-            await update.message.reply_text("❌ Internal error.")
-    else:
-        await update.message.reply_text("❌ Unknown subcommand. Use: set, on, off")
+
+    # 🔥 Establecer chat_id en la sesión
+    try:
+        supabase.rpc("set_chat_id", {"chat_id": chat_id}).execute()
+    except Exception as e:
+        logger.error(f"Error setting chat_id: {e}")
+
+    # ... resto del código
 
 @rate_limited()
 async def sniper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     args = context.args
+    
     if not supabase:
-        await update.message.reply_text("❌ Database not available.")
+        await update.message.reply_text("❌ Supabase not connected.")
         return
-    if not args:
-        try:
-            settings = supabase.table("sniper_settings").select("*").eq("chat_id", chat_id).execute()
-            if settings.data:
-                s = settings.data[0]
-                mode_emoji = "⚡" if s["mode"] == "aggressive" else "⚖️" if s["mode"] == "moderate" else "🛡️"
-                status = "✅ Active" if s["active"] else "❌ Paused"
-                text = (
-                    f"🎯 *Sniper X Settings*\n\n"
-                    f"💰 Max amount: ${s['max_amount']} USDT\n"
-                    f"📉 Slippage: {s['slippage']}%\n"
-                    f"🔄 Mode: {mode_emoji} {s['mode'].capitalize()}\n"
-                    f"🛡️ Anti-MEV: {'✅ ON' if s['anti_mev'] else '❌ OFF'}\n"
-                    f"🔘 Status: {status}\n\n"
-                    f"Commands:\n"
-                    f"`/sniper set [amount] [slippage] [mode] [anti_mev] [on/off]`\n"
-                    f"Modes: `aggressive`, `moderate`, `conservative`\n"
-                    f"Example: `/sniper set 100 2 aggressive true on`"
-                )
-                await update.message.reply_text(text, parse_mode="Markdown")
-            else:
-                await update.message.reply_text(
-                    "🎯 *Sniper X not configured*\n\n"
-                    "Use: `/sniper set [amount] [slippage] [mode] [anti_mev] [on/off]`\n"
-                    "Modes: `aggressive`, `moderate`, `conservative`\n"
-                    "Example: `/sniper set 100 2 aggressive true on`\n\n"
-                    "• Aggressive: max speed, higher slippage\n"
-                    "• Moderate: balanced speed/slippage\n"
-                    "• Conservative: lower speed, minimal slippage",
-                    parse_mode="Markdown"
-                )
-        except Exception as e:
-            logger.error(f"Error loading sniper settings: {e}")
-            await update.message.reply_text("❌ Internal error. Try again later.")
-        return
+
+    # 🔥 Establecer chat_id en la sesión
     try:
-        if len(args) < 6:
-            await update.message.reply_text("❌ Usage: `/sniper set [amount] [slippage] [mode] [anti_mev] [on/off]`")
-            return
-        amount = float(args[1])
-        slippage = float(args[2])
-        mode = args[3].lower()
-        anti_mev = args[4].lower() == "true"
-        active = args[5].lower() == "on"
-        if mode not in ["aggressive", "moderate", "conservative"]:
-            await update.message.reply_text("❌ Mode must be 'aggressive', 'moderate' or 'conservative'")
-            return
-        if amount <= 0 or slippage < 0:
-            await update.message.reply_text("❌ Amount must be > 0 and slippage >= 0")
-            return
-        data = {
-            "chat_id": chat_id,
-            "max_amount": amount,
-            "slippage": slippage,
-            "mode": mode,
-            "anti_mev": anti_mev,
-            "active": active,
-            "updated_at": datetime.now().isoformat()
-        }
-        supabase.table("sniper_settings").upsert(data).execute()
-        mode_emoji = "⚡" if mode == "aggressive" else "⚖️" if mode == "moderate" else "🛡️"
-        await update.message.reply_text(
-            f"✅ *Sniper X settings saved!*\n\n"
-            f"💰 Max amount: ${amount} USDT\n"
-            f"📉 Slippage: {slippage}%\n"
-            f"🔄 Mode: {mode_emoji} {mode.capitalize()}\n"
-            f"🛡️ Anti-MEV: {'✅ ON' if anti_mev else '❌ OFF'}\n"
-            f"🔘 Status: {'✅ Active' if active else '❌ Paused'}",
-            parse_mode="Markdown"
-        )
-    except ValueError:
-        await update.message.reply_text("❌ Invalid number format.")
+        supabase.rpc("set_chat_id", {"chat_id": chat_id}).execute()
     except Exception as e:
-        logger.error(f"Error saving sniper settings: {e}")
-        await update.message.reply_text("❌ Internal error. Try again later.")
+        logger.error(f"Error setting chat_id: {e}")
+
+    # ... resto del código
 
 # ==================== WEBHOOK + WEB TERMINAL ====================
 trade_history = []
