@@ -17,7 +17,7 @@ class TradingEngine:
         if self.testnet:
             base_url = "https://testnet.binance.vision"
 
-        # Inicializar cliente de Binance (usando requests_params para la URL)
+        # Inicializar cliente de Binance (usando requests_params para compatibilidad)
         try:
             self.client = Client(self.api_key, self.api_secret, requests_params={'base_url': base_url})
             logger.info("✅ Binance client initialized")
@@ -36,10 +36,8 @@ class TradingEngine:
             solana_private_key = os.getenv("SOLANA_PRIVATE_KEY")
             endpoint = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
 
-            # Inicializar cliente base (sin keypair)
             self.solana_client = SolanaClient(endpoint)
 
-            # Si hay una llave privada configurada, intentar usarla
             if solana_private_key:
                 try:
                     keypair_bytes = base58.b58decode(solana_private_key)
